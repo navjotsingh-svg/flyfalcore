@@ -25,7 +25,7 @@
                 <option value="first">First</option>
             </select>
         </div>
-        @include('partials.traveller-mix', ['wrapClass' => 'md:col-span-3'])
+        @include('partials.traveller-mix', ['wrapClass' => 'md:col-span-2'])
         <div class="md:col-span-1">
             <button type="submit" class="h-12 w-full rounded-xl bg-gold-500 hover:bg-gold-400 text-navy-950 font-semibold flex items-center justify-center transition" aria-label="Search flights">
                 <i class="fa-solid fa-magnifying-glass"></i>
