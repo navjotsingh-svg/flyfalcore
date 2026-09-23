@@ -123,25 +123,30 @@ class FlightSearchService
             ->all();
         $firstLeg = $legs[0] ?? $this->presentDuffelSlice($slices[0] ?? [], 'Outbound');
         $owner = $offer['owner'] ?? [];
-
-        return array_merge($firstLeg, [
+        $currency = $offer['total_currency'] ?? 'USD';
+        $cabin = $offer['cabin_class'] ?? $firstLeg['cabin_class'] ?? 'economy';
+        $presented = array_merge($firstLeg, [
             'source' => 'duffel',
             'id' => $offer['id'],
             'offer_request_id' => $offerRequestId ?? $offer['offer_request_id'] ?? null,
-            'airline' => $owner['name'] ?? ($firstLeg['airline'] ?? 'Airline'),
+            'airline' => AirlineCopy::airlineName($owner['name'] ?? ($firstLeg['airline'] ?? null)),
             'airline_code' => $owner['iata_code'] ?? ($firstLeg['airline_code'] ?? ''),
-            'cabin_class' => $offer['cabin_class'] ?? $firstLeg['cabin_class'] ?? 'economy',
-            'cabin_label' => AirlineCopy::cabinLabel($offer['cabin_class'] ?? $firstLeg['cabin_class'] ?? 'economy'),
+            'cabin_class' => $cabin,
+            'cabin_label' => AirlineCopy::cabinLabel($cabin),
             'available_services' => $offer['available_services'] ?? [],
             'price' => (float) ($offer['total_amount'] ?? 0),
-            'currency' => $offer['total_currency'] ?? 'USD',
+            'currency' => $currency,
             'passengers' => $offer['passengers'] ?? [],
             'expires_at' => isset($offer['expires_at']) ? Carbon::parse($offer['expires_at']) : null,
             'slices' => $slices,
             'legs' => $legs,
             'is_round_trip' => count($legs) > 1,
+            'terms' => \App\Support\FareFamily::termsFromOffer($offer, $currency),
             'raw' => $offer,
         ]);
+        $presented['fingerprint'] = \App\Support\FareFamily::fingerprint($presented);
+
+        return $presented;
     }
 
     /**
@@ -158,7 +163,7 @@ class FlightSearchService
 
         return [
             'label' => $label,
-            'airline' => data_get($first, 'marketing_carrier.name') ?? 'Airline',
+            'airline' => AirlineCopy::airlineName(data_get($first, 'marketing_carrier.name')),
             'airline_code' => data_get($first, 'marketing_carrier.iata_code') ?? '',
             'flight_number' => trim((data_get($first, 'marketing_carrier.iata_code') ?? '').(data_get($first, 'marketing_carrier_flight_number') ?? '')),
             'cabin_class' => $cabin,
@@ -251,15 +256,15 @@ class FlightSearchService
         }
 
         $first = $legs[0];
-
-        return array_merge($first, [
+        $cabin = $outbound->cabin_class;
+        $presented = array_merge($first, [
             'source' => 'local',
             'id' => $outbound->id,
             'return_flight_id' => $inbound?->id,
             'airline' => $outbound->airline->name,
             'airline_code' => $outbound->airline->code,
-            'cabin_class' => $outbound->cabin_class,
-            'cabin_label' => AirlineCopy::cabinLabel($outbound->cabin_class),
+            'cabin_class' => $cabin,
+            'cabin_label' => AirlineCopy::cabinLabel($cabin),
             'price' => (float) $outbound->price + (float) ($inbound?->price ?? 0),
             'currency' => 'INR',
             'available_seats' => min($outbound->available_seats, $inbound->available_seats ?? $outbound->available_seats),
@@ -267,7 +272,11 @@ class FlightSearchService
             'return_model' => $inbound,
             'legs' => $legs,
             'is_round_trip' => $inbound !== null,
+            'terms' => \App\Support\FareFamily::termsForLocal((string) $cabin),
         ]);
+        $presented['fingerprint'] = \App\Support\FareFamily::fingerprint($presented);
+
+        return $presented;
     }
 
     /**

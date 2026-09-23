@@ -278,13 +278,18 @@ class AncillaryCatalog
                                 }
                             }
 
+                            $letter = strtoupper((string) preg_replace('/\d+/', '', $designator));
+                            $rowNumber = (int) preg_replace('/\D+/', '', $designator);
+
                             $seats[] = [
                                 'designator' => $designator,
-                                'row' => (int) preg_replace('/\D+/', '', $designator),
-                                'letter' => strtoupper((string) preg_replace('/\d+/', '', $designator)),
+                                'row' => $rowNumber,
+                                'letter' => $letter,
                                 'amount' => $amount,
                                 'service_id' => $available ? $serviceId : null,
                                 'available' => $available,
+                                'kind' => self::seatKind($letter),
+                                'extra' => $amount > 0,
                                 'passenger_indexes' => array_values(array_unique($passengerIndexes)),
                             ];
                         }
@@ -322,11 +327,22 @@ class AncillaryCatalog
                     'amount' => $taken ? 0.0 : $amount,
                     'service_id' => null,
                     'available' => ! $taken,
+                    'kind' => self::seatKind($letter),
+                    'extra' => in_array($row, [8, 12, 14], true),
                     'passenger_indexes' => [],
                 ];
             }
         }
 
         return $seats;
+    }
+
+    protected static function seatKind(string $letter): string
+    {
+        return match (strtoupper($letter)) {
+            'A', 'F', 'K' => 'window',
+            'C', 'D', 'G' => 'aisle',
+            default => 'middle',
+        };
     }
 }

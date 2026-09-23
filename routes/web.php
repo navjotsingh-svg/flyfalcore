@@ -60,6 +60,7 @@ Route::post('/newsletter', [PageController::class, 'storeNewsletter'])->name('ne
 Route::get('/airports/suggest', AirportSuggestController::class)->name('airports.suggest');
 Route::get('/flights', [FlightController::class, 'index'])->name('flights.index');
 Route::get('/flights/{flight}', [FlightController::class, 'show'])->whereNumber('flight')->name('flights.show');
+Route::get('/flights/{flight}/fares', [FlightController::class, 'fares'])->whereNumber('flight')->name('flights.fares');
 Route::get('/flights/{flight}/book', [BookingController::class, 'create'])->whereNumber('flight')->name('bookings.create');
 Route::post('/flights/{flight}/book', [BookingController::class, 'store'])->whereNumber('flight')->name('bookings.store');
 

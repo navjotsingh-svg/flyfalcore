@@ -26,7 +26,7 @@
     $ancillaries = $ancillaries ?? ['bags' => [], 'seats' => [], 'cabin_label' => 'Economy'];
     $cabinLabel = $ancillaries['cabin_label'] ?? \App\Support\AirlineCopy::cabinLabel($offer['cabin_class'] ?? $flight?->cabin_class ?? 'economy');
 @endphp
-<section class="max-w-3xl mx-auto px-4 sm:px-6 py-10"
+<section class="bg-slate-50 min-h-[70vh]"
          x-data="passengerCheckout({
               saved: {{ \Illuminate\Support\Js::from($savedPassengers) }},
               count: {{ (int) $passengers }},
@@ -39,15 +39,23 @@
               fareTotal: {{ (float) $total }},
               symbol: {{ \Illuminate\Support\Js::from($symbol) }}
           })">
-    <h1 class="text-3xl font-extrabold">Passenger details</h1>
-    <p class="mt-2 text-slate-500">{{ $routeLabel }} · <span class="capitalize font-semibold text-navy-900">{{ $cabinLabel }}</span></p>
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-10">
+    <nav class="text-xs text-slate-400 flex flex-wrap items-center gap-2">
+        <a href="{{ route('flights.index') }}" class="hover:text-navy-900">Search</a>
+        <span>·</span>
+        <span>Select flights</span>
+        <span>·</span>
+        <span class="text-navy-900 font-semibold">Checkout</span>
+    </nav>
+    <h1 class="sr-only">Passenger details</h1>
+    <p class="sr-only">{{ $routeLabel }} · {{ $cabinLabel }}</p>
 
-    <div class="mt-4 rounded-xl bg-slate-50 border border-slate-100 px-4 py-3 text-sm flex flex-wrap justify-between gap-2">
-        <span>{{ $mix?->summary() ?? ($passengers.' passenger'.($passengers > 1 ? 's' : '')) }} · Fare <strong>{{ $symbol }}{{ number_format($total, 2) }}</strong></span>
-        <span class="text-gold-600 font-semibold" x-text="'Total ' + formatMoney(grandTotal())">Secure checkout</span>
+    <div class="mt-6">
+        @include('partials.checkout-itinerary')
     </div>
 
-    <form action="{{ $formAction }}" method="POST" class="mt-8 space-y-8">
+    <form action="{{ $formAction }}" method="POST" class="mt-8 grid lg:grid-cols-[minmax(0,1fr)_20rem] gap-6 items-start">
+        <div class="space-y-8">
         @csrf
         @if($mix)
             <input type="hidden" name="adults" value="{{ $mix->adults }}">
@@ -147,14 +155,14 @@
                     </div>
                     <div class="hidden sm:block"></div>
                     <div>
-                        <label class="block text-sm font-medium mb-1">First name</label>
+                        <label class="block text-sm font-medium mb-1">Given name</label>
                         <input type="text" name="passengers[{{ $i }}][first_name]" required
                                x-model="passengers[{{ $i }}].first_name"
                                class="w-full rounded-xl border border-slate-200 px-3 py-2.5 bg-slate-50">
                         @error("passengers.$i.first_name") <p class="text-red-600 text-sm mt-1">{{ $message }}</p> @enderror
                     </div>
                     <div>
-                        <label class="block text-sm font-medium mb-1">Last name</label>
+                        <label class="block text-sm font-medium mb-1">Family name</label>
                         <input type="text" name="passengers[{{ $i }}][last_name]" required
                                x-model="passengers[{{ $i }}].last_name"
                                class="w-full rounded-xl border border-slate-200 px-3 py-2.5 bg-slate-50">
@@ -200,9 +208,10 @@
                                class="w-full rounded-xl border border-slate-200 px-3 py-2.5 bg-slate-50">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium mb-1">Nationality</label>
+                        <label class="block text-sm font-medium mb-1">Country of issue</label>
                         <input type="text" name="passengers[{{ $i }}][nationality]"
                                x-model="passengers[{{ $i }}].nationality"
+                               placeholder="Nationality / issuing country"
                                class="w-full rounded-xl border border-slate-200 px-3 py-2.5 bg-slate-50">
                     </div>
                     @auth
@@ -219,17 +228,30 @@
         @endforeach
 
         @include('partials.booking-extras')
+        </div>
 
-        <div class="rounded-2xl border border-slate-200 bg-white p-5 flex flex-wrap items-center justify-between gap-3">
-            <div>
-                <p class="text-sm text-slate-500">Payable now</p>
+        <aside class="rounded-3xl bg-white ring-1 ring-slate-200 p-5 lg:sticky lg:top-24">
+            <h2 class="font-semibold text-lg text-navy-900">Payment</h2>
+            <dl class="mt-4 space-y-2 text-sm">
+                <div class="flex justify-between gap-3">
+                    <dt class="text-slate-500">Fare</dt>
+                    <dd class="font-semibold text-navy-900">{{ $symbol }}{{ number_format($total, 2) }}</dd>
+                </div>
+                <div class="flex justify-between gap-3">
+                    <dt class="text-slate-500">Extras</dt>
+                    <dd class="font-semibold text-navy-900" x-text="formatMoney(extrasTotal())">{{ $symbol }}0.00</dd>
+                </div>
+            </dl>
+            <div class="mt-4 pt-4 border-t border-slate-100 flex justify-between gap-3">
+                <p class="text-sm text-slate-500">Total</p>
                 <p class="text-2xl font-extrabold text-navy-900" x-text="formatMoney(grandTotal())">{{ $symbol }}{{ number_format($total, 2) }}</p>
             </div>
-            <button type="submit" class="w-full sm:w-auto rounded-full bg-gold-500 hover:bg-gold-400 text-navy-950 font-semibold px-8 py-3 transition">
+            <button type="submit" class="mt-5 w-full rounded-full bg-navy-950 hover:bg-navy-900 text-white font-semibold px-8 py-3 transition">
                 Continue to pay
             </button>
-        </div>
+        </aside>
     </form>
+    </div>
 </section>
 @endsection
 
@@ -307,6 +329,9 @@ function passengerCheckout({ saved, count, old, slots, travelDate, requiresIdent
         symbol: symbol || '',
         fareTotal: Number(fareTotal || 0),
         selecting: 0,
+        previewSeat: null,
+        extrasOpen: '',
+        seatModal: false,
         bags: Array.from({ length: count }, (_, index) => Number((extras.bags && extras.bags[index]) || 0)),
         seats: Array.from({ length: count }, (_, index) => String((extras.seats && extras.seats[index]) || '')),
         passengers: Array.from({ length: count }, (_, index) => old[index] ? splitDob(old[index]) : empty()),
@@ -341,6 +366,22 @@ function passengerCheckout({ saved, count, old, slots, travelDate, requiresIdent
         seatMeta(designator) {
             return (this.ancillaries.seats || []).find((seat) => seat.designator === designator);
         },
+        passengerLabel(index) {
+            const passenger = this.passengers[index] || {};
+            const name = [passenger.first_name, passenger.last_name].filter(Boolean).join(' ').trim();
+            const slot = this.slots[index] || {};
+            return name || (`Passenger ${index + 1} · ${slot.label || 'Traveller'}`);
+        },
+        passengerInitial(index) {
+            const passenger = this.passengers[index] || {};
+            const letter = String(passenger.first_name || '').trim().charAt(0);
+            return letter ? letter.toUpperCase() : `P${index + 1}`;
+        },
+        seatedIndexes() {
+            return this.slots
+                .map((slot, index) => ((slot && slot.type) === 'infant_without_seat' ? null : index))
+                .filter((index) => index !== null);
+        },
         pickSeat(designator) {
             const seat = this.seatMeta(designator);
             if (!seat || !seat.available) return;
@@ -350,11 +391,37 @@ function passengerCheckout({ saved, count, old, slots, travelDate, requiresIdent
             }
             this.seats = this.seats.map((value) => (value === designator ? '' : value));
             this.seats[this.selecting] = designator;
+            const next = this.seatedIndexes().find((index) => index !== this.selecting && !this.seats[index]);
+            if (next !== undefined) this.selecting = next;
         },
-        seatClass(designator, available) {
-            if (!available) return 'bg-white/15 text-white/30 cursor-not-allowed';
-            if (this.seats.includes(designator)) return 'bg-gold-500 text-navy-950';
-            return 'bg-white text-navy-900 hover:bg-gold-400';
+        clearSeat(index) {
+            this.seats[index] = '';
+        },
+        seatOwner(designator) {
+            return this.seats.findIndex((value) => value === designator);
+        },
+        seatMark(designator, available, letter) {
+            const owner = this.seatOwner(designator);
+            if (owner >= 0) return this.passengerInitial(owner);
+            return available ? letter : '×';
+        },
+        seatPriceLabel(designator) {
+            const seat = this.seatMeta(designator);
+            if (!seat || !Number(seat.amount)) return '';
+            return ' · ' + this.formatMoney(seat.amount);
+        },
+        previewAmount() {
+            const seat = this.previewSeat;
+            if (!seat || !seat.available) return seat && !seat.available ? ' · Taken' : '';
+            if (!Number(seat.amount)) return ' · Included';
+            return ' · +' + this.formatMoney(seat.amount);
+        },
+        seatClass(designator, available, kind, extra) {
+            if (!available) return 'bg-white/15 text-white/30 cursor-not-allowed shadow-none';
+            if (this.seats.includes(designator)) return 'bg-gold-500 text-navy-950 ring-2 ring-white/70';
+            if (extra) return 'bg-[#f4f1ea] text-navy-900 ring-1 ring-gold-400 hover:bg-gold-200';
+            if (kind === 'window') return 'bg-[#dbeafe] text-navy-900 hover:bg-gold-200';
+            return 'bg-[#f4f1ea] text-navy-900 hover:bg-gold-200';
         },
         extrasTotal() {
             let total = 0;
@@ -362,6 +429,11 @@ function passengerCheckout({ saved, count, old, slots, travelDate, requiresIdent
                 const option = bagOptions[index] || bagOptions[String(index)];
                 if (option && Number(qty) > 0) total += Number(qty) * Number(option.amount || 0);
             });
+            total += this.seatTotal();
+            return total;
+        },
+        seatTotal() {
+            let total = 0;
             this.seats.forEach((designator) => {
                 const seat = this.seatMeta(designator);
                 if (seat) total += Number(seat.amount || 0);

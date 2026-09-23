@@ -7,7 +7,7 @@
     $routeReady = filled($fromLabel ?? null) && filled($toLabel ?? null);
     $mix = $mix ?? \App\Support\PassengerMix::fromArray($filters ?? []);
 @endphp
-<div class="bg-slate-50 min-h-[70vh]" x-data="{ modify: {{ $routeReady ? 'false' : 'true' }} }">
+<div class="bg-slate-50 min-h-[70vh]" x-data="{ modify: {{ $routeReady ? 'false' : 'true' }} }" @edit-search="modify = true">
     <section class="bg-navy-950 text-white">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-10">
             <p class="text-xs font-semibold tracking-[0.2em] uppercase text-gold-400">Live fares</p>
@@ -65,10 +65,12 @@
                       url: @js(route('airports.suggest')),
                       trip: @js($trip ?? 'oneway'),
                       depart: @js($filters['date'] ?? now()->addDay()->toDateString()),
+                      cabin: @js($filters['cabin'] ?? ''),
                   })"
                   @submit="if (!validate()) $event.preventDefault()">
             @include('partials.trip-type', ['wrapClass' => 'mb-4'])
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3">
+            @include('partials.cabin-class-picker', ['includeAny' => true, 'wrapClass' => 'mb-4'])
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
                 @include('partials.airport-suggest', [
                     'showSwap' => false,
                     'inputClass' => 'w-full rounded-2xl border border-slate-200 px-3 py-2.5 bg-slate-50 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-gold-500',
@@ -86,16 +88,6 @@
                            :required="trip === 'return'"
                            :disabled="trip !== 'return'"
                            class="w-full rounded-2xl border border-slate-200 px-3 py-2.5 bg-slate-50">
-                </div>
-                <div>
-                    <label class="block text-xs font-semibold uppercase tracking-wide text-slate-400 mb-1">Cabin</label>
-                    <select name="cabin" class="w-full rounded-2xl border border-slate-200 px-3 py-2.5 bg-slate-50">
-                        <option value="">Any</option>
-                        <option value="economy" @selected(($filters['cabin'] ?? '') === 'economy')>Economy</option>
-                        <option value="premium_economy" @selected(($filters['cabin'] ?? '') === 'premium_economy')>Premium economy</option>
-                        <option value="business" @selected(($filters['cabin'] ?? '') === 'business')>Business</option>
-                        <option value="first" @selected(($filters['cabin'] ?? '') === 'first')>First</option>
-                    </select>
                 </div>
                 @include('partials.traveller-mix', [
                     'wrapClass' => '',
@@ -119,31 +111,38 @@
         </form>
         </div>
 
-        <div id="flight-results" class="mt-4 lg:mt-8 flex items-end justify-between gap-4">
-            <div>
-                <p class="text-xs font-semibold tracking-[0.18em] uppercase text-gold-600">{{ $offers->count() }} {{ $offers->count() === 1 ? 'option' : 'options' }}</p>
-                <h2 class="mt-1 text-xl font-semibold text-navy-900">
-                    Choose your flight
-                    @if($routeReady)
-                        <span class="font-normal text-slate-500">· {{ $fromCode }} {{ filled($filters['return_date'] ?? null) ? '⇄' : '→' }} {{ $toCode }}</span>
-                    @endif
-                </h2>
-            </div>
-        </div>
+        @php
+            $isReturnListing = filled($filters['return_date'] ?? null)
+                && $offers->contains(fn ($offer) => ! empty($offer['is_round_trip']));
+        @endphp
 
-        <div class="mt-5 space-y-4">
-            @forelse($offers as $offer)
-                @include('partials.flight-offer-card', ['offer' => $offer, 'mix' => $mix, 'filters' => $filters ?? []])
-            @empty
-                <div class="rounded-3xl border border-dashed border-slate-200 bg-white px-6 py-16 text-center">
-                    <div class="mx-auto h-14 w-14 rounded-full bg-navy-900 text-gold-400 inline-flex items-center justify-center">
-                        <i class="fa-solid fa-plane-circle-exclamation"></i>
-                    </div>
-                    <p class="mt-4 font-semibold text-navy-900">No flights match this search</p>
-                    <p class="mt-2 text-sm text-slate-500">Try another date, cabin, or nearby airport.</p>
+        @if($isReturnListing)
+            @include('partials.return-listing')
+            <noscript>
+                <div class="mt-5 space-y-3">
+                    @foreach($offers as $offer)
+                        @include('partials.flight-offer-card', ['offer' => $offer, 'mix' => $mix, 'filters' => $filters ?? []])
+                    @endforeach
                 </div>
-            @endforelse
-        </div>
+            </noscript>
+        @elseif($offers->isEmpty())
+            <div class="mt-8 rounded-3xl border border-dashed border-slate-200 bg-white px-6 py-16 text-center">
+                <div class="mx-auto h-14 w-14 rounded-full bg-navy-900 text-gold-400 inline-flex items-center justify-center">
+                    <i class="fa-solid fa-plane-circle-exclamation"></i>
+                </div>
+                <p class="mt-4 font-semibold text-navy-900">No flights match this search</p>
+                <p class="mt-2 text-sm text-slate-500">Try another date, cabin, or nearby airport.</p>
+            </div>
+        @else
+            @include('partials.flight-listing')
+            <noscript>
+                <div class="mt-5 space-y-3">
+                    @foreach($offers as $offer)
+                        @include('partials.flight-offer-card', ['offer' => $offer, 'mix' => $mix, 'filters' => $filters ?? []])
+                    @endforeach
+                </div>
+            </noscript>
+        @endif
     </section>
 </div>
 @endsection

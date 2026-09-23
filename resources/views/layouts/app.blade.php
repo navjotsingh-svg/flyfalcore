@@ -287,6 +287,7 @@
                 url: initial.url || '/airports/suggest',
                 trip: initial.trip || 'oneway',
                 depart: initial.depart || '',
+                cabin: initial.cabin ?? 'economy',
                 fromCode: initial.fromCode || '',
                 fromQuery: initial.fromQuery || '',
                 fromItems: [],
@@ -370,6 +371,79 @@
                 },
                 validate() {
                     return this.acceptTyped('from') && this.acceptTyped('to');
+                },
+            }));
+            Alpine.data('flightListing', (offers = []) => ({
+                offers,
+                sort: 'price',
+                stops: 'any',
+                airline: '',
+                get visible() {
+                    let rows = this.offers.slice();
+                    if (this.airline) {
+                        rows = rows.filter((offer) => offer.airline_code === this.airline);
+                    }
+                    if (this.stops !== 'any') {
+                        const max = Number(this.stops);
+                        rows = rows.filter((offer) => Number(offer.stops || offer.outbound?.stops || 0) <= max);
+                    }
+                    const desc = this.sort.endsWith('-desc');
+                    const key = this.sort.startsWith('duration') ? 'duration_minutes' : 'from_price';
+                    return rows.sort((a, b) => {
+                        const left = Number(a[key] ?? a.price ?? 0);
+                        const right = Number(b[key] ?? b.price ?? 0);
+                        return desc ? right - left : left - right;
+                    });
+                },
+            }));
+            Alpine.data('fareOptions', (fares = [], selectedId = null) => ({
+                fares,
+                selectedId: selectedId || fares[0]?.id || null,
+                get selected() {
+                    return this.fares.find((fare) => fare.id === this.selectedId) || this.fares[0] || {
+                        airline: '',
+                        price_label: '',
+                        checkout: '#',
+                        change: { allowed: false, label: '' },
+                        refund: { allowed: false, label: '' },
+                        hold: { allowed: false, label: '' },
+                        bags: [],
+                        emissions: null,
+                    };
+                },
+            }));
+            Alpine.data('returnListing', (offers = []) => ({
+                offers,
+                selectedId: offers[0]?.id || null,
+                get selected() {
+                    return this.offers.find((offer) => offer.id === this.selectedId) || this.offers[0] || {};
+                },
+                get outboundKey() {
+                    return this.selected?.outbound?.key || '';
+                },
+                get outbounds() {
+                    const rows = new Map();
+                    this.offers.forEach((offer) => {
+                        const key = offer.outbound?.key;
+                        if (!key) return;
+                        const current = rows.get(key);
+                        if (!current || offer.price < current.price) {
+                            rows.set(key, { key, leg: offer.outbound, price: offer.price, from_price: offer.price_label });
+                        }
+                    });
+                    return Array.from(rows.values());
+                },
+                get returns() {
+                    return this.offers.filter((offer) => offer.outbound?.key === this.outboundKey && offer.inbound);
+                },
+                selectOutbound(key) {
+                    const matches = this.offers.filter((offer) => offer.outbound?.key === key);
+                    if (!matches.length) return;
+                    const keep = matches.find((offer) => offer.inbound?.key === this.selected?.inbound?.key);
+                    this.selectedId = (keep || matches.slice().sort((a, b) => a.price - b.price)[0]).id;
+                },
+                selectOffer(id) {
+                    this.selectedId = id;
                 },
             }));
             Alpine.data('travellerMix', (initial = {}) => ({

@@ -42,6 +42,11 @@ class AirportSuggestTest extends TestCase
             ->assertDontSee('<select name="from"', false)
             ->assertDontSee('<select name="to"', false)
             ->assertSee('Return')
-            ->assertSee('name="return_date"', false);
+            ->assertSee('name="return_date"', false)
+            ->assertSee('name="cabin"', false)
+            ->assertSee('Premium economy')
+            ->assertSee('Business')
+            ->assertSee('First')
+            ->assertDontSee('Duffel');
     }
 }

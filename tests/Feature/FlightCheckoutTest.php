@@ -31,10 +31,49 @@ class FlightCheckoutTest extends TestCase
         $this->get('/flights?from=LHR&to=JFK&date='.now()->addWeek()->toDateString())
             ->assertOk()
             ->assertSee('British Airways')
-            ->assertSee('Total fare')
+            ->assertSee('Select')
             ->assertDontSee('Duffel')
-            ->assertSee('Book Now')
-            ->assertSee('Modify search');
+            ->assertSee('Modify search')
+            ->assertSee('Least expensive')
+            ->assertSee('Direct only');
+    }
+
+    public function test_fare_options_show_sibling_cabins_without_supplier_name(): void
+    {
+        config()->set('services.duffel.token', 'duffel_test_fake');
+
+        $economy = $this->offerFixture();
+        $business = $this->offerFixture();
+        $business['id'] = 'off_test_biz';
+        $business['cabin_class'] = 'business';
+        $business['total_amount'] = '890.00';
+        $business['slices'][0]['fare_brand_name'] = 'Premium';
+
+        Http::fake(function (\Illuminate\Http\Client\Request $request) use ($economy, $business) {
+            $url = $request->url();
+
+            if (str_contains($url, '/air/offers/off_test_1')) {
+                return Http::response(['data' => $economy], 200);
+            }
+
+            if (str_contains($url, '/air/offers')) {
+                return Http::response(['data' => [$economy, $business]], 200);
+            }
+
+            return Http::response(['errors' => [['message' => 'unexpected '.$url]]], 404);
+        });
+
+        $this->get(route('offers.show', 'off_test_1'))
+            ->assertOk()
+            ->assertSee('Fare options')
+            ->assertSee('Economy')
+            ->assertSee('Business')
+            ->assertSee('Go to checkout')
+            ->assertSee('Changeable')
+            ->assertSee('Not refundable')
+            ->assertSee('Hold price')
+            ->assertDontSee('Duffel')
+            ->assertSee('off_test_biz');
     }
 
     public function test_return_search_sends_two_slices_and_shows_both_legs(): void
@@ -56,7 +95,7 @@ class FlightCheckoutTest extends TestCase
         $this->get('/flights?from=LHR&to=JFK&date='.$out.'&return_date='.$back)
             ->assertOk()
             ->assertSee('Round trip')
-            ->assertSee('Outbound')
+            ->assertSee('Depart')
             ->assertSee('Return')
             ->assertSee('JFK')
             ->assertSee('LHR');
@@ -100,7 +139,7 @@ class FlightCheckoutTest extends TestCase
         $this->get('/flights?from=LHR&to=JFK&date='.$outbound->departure_at->toDateString().'&return_date='.$inbound->departure_at->toDateString())
             ->assertOk()
             ->assertSee('Round trip')
-            ->assertSee('Outbound')
+            ->assertSee('Depart')
             ->assertSee('Return')
             ->assertSee('return_flight='.$inbound->id, false);
 
@@ -134,6 +173,34 @@ class FlightCheckoutTest extends TestCase
         $this->assertSame('Return', $booking->legs()[1]['label']);
         $this->assertSame(49, $outbound->fresh()->available_seats);
         $this->assertSame(39, $inbound->fresh()->available_seats);
+    }
+
+    public function test_search_sends_cabin_class_to_live_airline_search(): void
+    {
+        config()->set('services.duffel.token', 'duffel_test_fake');
+
+        Http::fake([
+            'https://api.duffel.com/air/offer_requests*' => Http::response([
+                'data' => ['id' => 'orq_test'],
+            ], 201),
+            'https://api.duffel.com/air/offers*' => Http::response([
+                'data' => [$this->offerFixture()],
+            ], 200),
+        ]);
+
+        $this->get('/flights?from=LHR&to=JFK&date='.now()->addWeek()->toDateString().'&cabin=business')
+            ->assertOk()
+            ->assertSee('Business');
+
+        Http::assertSent(function (\Illuminate\Http\Client\Request $request) {
+            if (! str_contains($request->url(), '/air/offer_requests')) {
+                return false;
+            }
+
+            $cabin = data_get($request->data(), 'data.cabin_class') ?? data_get($request->data(), 'cabin_class');
+
+            return $cabin === 'business';
+        });
     }
 
     public function test_search_sends_adult_child_and_infant_types_to_duffel(): void
@@ -698,6 +765,20 @@ class FlightCheckoutTest extends TestCase
             'cabin_class' => 'economy',
             'owner' => ['name' => 'British Airways', 'iata_code' => 'BA'],
             'passengers' => [['id' => 'pas_1', 'type' => 'adult']],
+            'conditions' => [
+                'change_before_departure' => [
+                    'allowed' => true,
+                    'penalty_amount' => '70.00',
+                    'penalty_currency' => 'GBP',
+                ],
+                'refund_before_departure' => [
+                    'allowed' => false,
+                ],
+            ],
+            'payment_requirements' => [
+                'requires_instant_payment' => false,
+                'price_guarantee_expires_at' => now()->addDays(2)->toIso8601String(),
+            ],
             'slices' => $slices,
         ];
     }
