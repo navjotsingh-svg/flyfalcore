@@ -24,6 +24,7 @@
                 <input type="date" name="date" x-model="depart" min="{{ now()->toDateString() }}" required
                        class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-gold-500">
             </div>
+            
             <div class="md:col-span-2" x-show="trip === 'return'" x-cloak>
                 <label class="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Return</label>
                 <input type="date" name="return_date" value="{{ now()->addDays(8)->toDateString() }}"
