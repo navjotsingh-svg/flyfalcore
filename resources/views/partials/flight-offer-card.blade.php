@@ -1,18 +1,34 @@
 @php
+    $legs = $offer['legs'] ?? [];
+    if ($legs === []) {
+        $legs = [[
+            'label' => 'Outbound',
+            'airline' => $offer['airline'] ?? '',
+            'airline_code' => $offer['airline_code'] ?? '',
+            'flight_number' => $offer['flight_number'] ?? '',
+            'origin_code' => $offer['origin_code'] ?? '',
+            'origin_city' => $offer['origin_city'] ?? '',
+            'destination_code' => $offer['destination_code'] ?? '',
+            'destination_city' => $offer['destination_city'] ?? '',
+            'departure_at' => $offer['departure_at'],
+            'arrival_at' => $offer['arrival_at'],
+            'formatted_duration' => $offer['formatted_duration'] ?? '',
+            'stops' => $offer['stops'] ?? 0,
+            'via' => $offer['via'] ?? [],
+        ]];
+    }
+    $bookQuery = ($mix ?? \App\Support\PassengerMix::fromArray($filters ?? []))->query();
+    if (! empty($offer['return_flight_id'])) {
+        $bookQuery['return_flight'] = $offer['return_flight_id'];
+    }
     $bookUrl = $offer['source'] === 'duffel'
         ? route('offers.book', $offer['id'])
-        : route('bookings.create', array_merge(['flight' => $offer['id']], ($mix ?? \App\Support\PassengerMix::fromArray($filters ?? []))->query()));
+        : route('bookings.create', array_merge(['flight' => $offer['id']], $bookQuery));
     $symbol = ['USD' => '$', 'GBP' => '£', 'EUR' => '€', 'INR' => '₹'][$offer['currency']] ?? $offer['currency'].' ';
     $cabin = $offer['cabin_label'] ?? \App\Support\AirlineCopy::cabinLabel($offer['cabin_class'] ?? 'economy');
-    $via = $offer['via'] ?? [];
-    $stops = (int) ($offer['stops'] ?? 0);
-    $stopLabel = $stops === 0 ? 'Non-stop' : $stops.' stop'.($stops > 1 ? 's' : '');
-    if ($via !== []) {
-        $stopLabel .= ' · via '.implode(', ', $via);
-    }
     $initials = $offer['airline_code'] ?: collect(explode(' ', $offer['airline']))->map(fn ($w) => mb_substr($w, 0, 1))->take(2)->implode('');
-    $plusDays = $offer['departure_at']->copy()->startOfDay()->diffInDays($offer['arrival_at']->copy()->startOfDay());
-    $fareHint = $offer['source'] === 'duffel' ? 'Total fare' : 'Per passenger';
+    $fareHint = $offer['source'] === 'duffel' ? 'Total fare' : ((count($legs) > 1) ? 'Round trip / adult' : 'Per passenger');
+    $roundTrip = count($legs) > 1;
 @endphp
 <article class="group relative overflow-hidden rounded-3xl bg-white shadow-[0_12px_40px_-24px_rgba(11,26,51,0.35)] ring-1 ring-slate-200/80 hover:ring-gold-400/70 hover:shadow-card transition">
     <span class="absolute inset-y-0 left-0 w-1 bg-gold-500 opacity-0 group-hover:opacity-100 transition"></span>
@@ -25,43 +41,66 @@
                 </div>
                 <div class="min-w-0">
                     <p class="font-semibold text-navy-900 truncate">{{ $offer['airline'] }}</p>
-                    <p class="text-xs text-slate-500">{{ $offer['flight_number'] }}</p>
+                    <p class="text-xs text-slate-500">
+                        {{ collect($legs)->pluck('flight_number')->filter()->implode(' · ') }}
+                        @if($roundTrip)
+                            · Round trip
+                        @endif
+                    </p>
                 </div>
             </div>
             <span class="shrink-0 rounded-full bg-brand-50 text-navy-900 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide">{{ $cabin }}</span>
         </div>
 
-        <div class="mt-5 grid grid-cols-[1fr_minmax(5.5rem,9rem)_1fr] items-center gap-2 sm:gap-4">
-            <div>
-                <p class="font-display text-[1.85rem] sm:text-4xl font-bold text-navy-900 leading-none tabular-nums">{{ $offer['departure_at']->format('H:i') }}</p>
-                <p class="mt-2 text-sm font-bold tracking-wide text-navy-900">{{ $offer['origin_code'] }}</p>
-                <p class="text-xs text-slate-500 truncate">{{ $offer['origin_city'] }}</p>
-                <p class="mt-1 text-[11px] text-slate-400">{{ $offer['departure_at']->format('D, j M') }}</p>
-            </div>
-            <div class="text-center px-1">
-                <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{{ $offer['formatted_duration'] }}</p>
-                <div class="relative my-2 flex items-center">
-                    <span class="h-2 w-2 rounded-full bg-navy-900"></span>
-                    <span class="flex-1 border-t border-dashed border-slate-300"></span>
-                    <span class="mx-1 h-7 w-7 rounded-full bg-gold-500/15 text-gold-600 inline-flex items-center justify-center">
-                        <i class="fa-solid fa-plane text-[10px]"></i>
-                    </span>
-                    <span class="flex-1 border-t border-dashed border-slate-300"></span>
-                    <span class="h-2 w-2 rounded-full bg-gold-500"></span>
-                </div>
-                <p class="text-[11px] sm:text-xs font-semibold {{ $stops === 0 ? 'text-emerald-600' : 'text-amber-600' }}">{{ $stopLabel }}</p>
-            </div>
-            <div class="text-right">
-                <p class="font-display text-[1.85rem] sm:text-4xl font-bold text-navy-900 leading-none tabular-nums">
-                    {{ $offer['arrival_at']->format('H:i') }}
-                    @if($plusDays > 0)
-                        <sup class="text-sm font-semibold text-gold-600">+{{ $plusDays }}</sup>
+        <div class="mt-5 space-y-5">
+            @foreach($legs as $leg)
+                @php
+                    $via = $leg['via'] ?? [];
+                    $stops = (int) ($leg['stops'] ?? 0);
+                    $stopLabel = $stops === 0 ? 'Non-stop' : $stops.' stop'.($stops > 1 ? 's' : '');
+                    if ($via !== []) {
+                        $stopLabel .= ' · via '.implode(', ', $via);
+                    }
+                    $plusDays = $leg['departure_at']->copy()->startOfDay()->diffInDays($leg['arrival_at']->copy()->startOfDay());
+                @endphp
+                <div>
+                    @if($roundTrip)
+                        <p class="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-gold-600">{{ $leg['label'] }}</p>
                     @endif
-                </p>
-                <p class="mt-2 text-sm font-bold tracking-wide text-navy-900">{{ $offer['destination_code'] }}</p>
-                <p class="text-xs text-slate-500 truncate">{{ $offer['destination_city'] }}</p>
-                <p class="mt-1 text-[11px] text-slate-400">{{ $offer['arrival_at']->format('D, j M') }}</p>
-            </div>
+                    <div class="grid grid-cols-[1fr_minmax(5.5rem,9rem)_1fr] items-center gap-2 sm:gap-4">
+                        <div>
+                            <p class="font-display text-[1.85rem] sm:text-4xl font-bold text-navy-900 leading-none tabular-nums">{{ $leg['departure_at']->format('H:i') }}</p>
+                            <p class="mt-2 text-sm font-bold tracking-wide text-navy-900">{{ $leg['origin_code'] }}</p>
+                            <p class="text-xs text-slate-500 truncate">{{ $leg['origin_city'] }}</p>
+                            <p class="mt-1 text-[11px] text-slate-400">{{ $leg['departure_at']->format('D, j M') }}</p>
+                        </div>
+                        <div class="text-center px-1">
+                            <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{{ $leg['formatted_duration'] }}</p>
+                            <div class="relative my-2 flex items-center">
+                                <span class="h-2 w-2 rounded-full bg-navy-900"></span>
+                                <span class="flex-1 border-t border-dashed border-slate-300"></span>
+                                <span class="mx-1 h-7 w-7 rounded-full bg-gold-500/15 text-gold-600 inline-flex items-center justify-center">
+                                    <i class="fa-solid {{ ($leg['label'] ?? '') === 'Return' ? 'fa-plane-arrival' : 'fa-plane' }} text-[10px]"></i>
+                                </span>
+                                <span class="flex-1 border-t border-dashed border-slate-300"></span>
+                                <span class="h-2 w-2 rounded-full bg-gold-500"></span>
+                            </div>
+                            <p class="text-[11px] sm:text-xs font-semibold {{ $stops === 0 ? 'text-emerald-600' : 'text-amber-600' }}">{{ $stopLabel }}</p>
+                        </div>
+                        <div class="text-right">
+                            <p class="font-display text-[1.85rem] sm:text-4xl font-bold text-navy-900 leading-none tabular-nums">
+                                {{ $leg['arrival_at']->format('H:i') }}
+                                @if($plusDays > 0)
+                                    <sup class="text-sm font-semibold text-gold-600">+{{ $plusDays }}</sup>
+                                @endif
+                            </p>
+                            <p class="mt-2 text-sm font-bold tracking-wide text-navy-900">{{ $leg['destination_code'] }}</p>
+                            <p class="text-xs text-slate-500 truncate">{{ $leg['destination_city'] }}</p>
+                            <p class="mt-1 text-[11px] text-slate-400">{{ $leg['arrival_at']->format('D, j M') }}</p>
+                        </div>
+                    </div>
+                </div>
+            @endforeach
         </div>
     </div>
 

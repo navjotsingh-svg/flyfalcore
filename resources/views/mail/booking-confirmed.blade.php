@@ -35,32 +35,43 @@
                         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:24px;border-top:1px solid #e2e8f0;">
                             <tr>
                                 <td style="padding-top:20px;">
-                                    <p style="margin:0;font-size:13px;color:#64748b;">{{ $booking->airlineName() }} · {{ $itinerary['flight_number'] ?? $booking->flight?->full_flight_number }} · {{ $cabin }}</p>
+                                    <p style="margin:0;font-size:13px;color:#64748b;">{{ $booking->airlineName() }} · {{ $cabin }}</p>
                                     <h2 style="margin:6px 0 0;font-size:22px;">{{ $booking->routeLabel() }}</h2>
                                 </td>
                             </tr>
                         </table>
 
-                        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:16px;">
-                            <tr>
-                                <td width="50%" valign="top" style="padding-right:12px;">
-                                    <p style="margin:0;font-size:11px;color:#94a3b8;text-transform:uppercase;">Depart</p>
-                                    @if($depart)
-                                        <p style="margin:4px 0 0;font-size:20px;font-weight:bold;">{{ \Carbon\Carbon::parse($depart)->format('H:i') }}</p>
-                                        <p style="margin:4px 0 0;font-size:13px;color:#475569;">{{ \Carbon\Carbon::parse($depart)->format('D, M j, Y') }}</p>
-                                    @endif
-                                    <p style="margin:6px 0 0;font-size:13px;">{{ $itinerary['origin_name'] ?? $booking->flight?->originAirport?->name }} ({{ $itinerary['origin_code'] ?? $booking->flight?->originAirport?->code }})</p>
-                                </td>
-                                <td width="50%" valign="top" style="padding-left:12px;">
-                                    <p style="margin:0;font-size:11px;color:#94a3b8;text-transform:uppercase;">Arrive</p>
-                                    @if($arrive)
-                                        <p style="margin:4px 0 0;font-size:20px;font-weight:bold;">{{ \Carbon\Carbon::parse($arrive)->format('H:i') }}</p>
-                                        <p style="margin:4px 0 0;font-size:13px;color:#475569;">{{ \Carbon\Carbon::parse($arrive)->format('D, M j, Y') }}</p>
-                                    @endif
-                                    <p style="margin:6px 0 0;font-size:13px;">{{ $itinerary['destination_name'] ?? $booking->flight?->destinationAirport?->name }} ({{ $itinerary['destination_code'] ?? $booking->flight?->destinationAirport?->code }})</p>
-                                </td>
-                            </tr>
-                        </table>
+                        @foreach($booking->legs() as $leg)
+                            @php
+                                $legDepart = $leg['departure_at'] ?? $depart;
+                                $legArrive = $leg['arrival_at'] ?? $arrive;
+                            @endphp
+                            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:16px;">
+                                <tr>
+                                    <td colspan="2" style="padding-bottom:8px;">
+                                        <p style="margin:0;font-size:11px;color:#d4b06a;letter-spacing:1px;text-transform:uppercase;font-weight:bold;">{{ $leg['label'] ?? 'Flight' }} {{ $leg['flight_number'] ?? '' }}</p>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td width="50%" valign="top" style="padding-right:12px;">
+                                        <p style="margin:0;font-size:11px;color:#94a3b8;text-transform:uppercase;">Depart</p>
+                                        @if($legDepart)
+                                            <p style="margin:4px 0 0;font-size:20px;font-weight:bold;">{{ \Carbon\Carbon::parse($legDepart)->format('H:i') }}</p>
+                                            <p style="margin:4px 0 0;font-size:13px;color:#475569;">{{ \Carbon\Carbon::parse($legDepart)->format('D, M j, Y') }}</p>
+                                        @endif
+                                        <p style="margin:6px 0 0;font-size:13px;">{{ $leg['origin_name'] ?? $leg['origin_city'] ?? '' }} ({{ $leg['origin_code'] ?? '' }})</p>
+                                    </td>
+                                    <td width="50%" valign="top" style="padding-left:12px;">
+                                        <p style="margin:0;font-size:11px;color:#94a3b8;text-transform:uppercase;">Arrive</p>
+                                        @if($legArrive)
+                                            <p style="margin:4px 0 0;font-size:20px;font-weight:bold;">{{ \Carbon\Carbon::parse($legArrive)->format('H:i') }}</p>
+                                            <p style="margin:4px 0 0;font-size:13px;color:#475569;">{{ \Carbon\Carbon::parse($legArrive)->format('D, M j, Y') }}</p>
+                                        @endif
+                                        <p style="margin:6px 0 0;font-size:13px;">{{ $leg['destination_name'] ?? $leg['destination_city'] ?? '' }} ({{ $leg['destination_code'] ?? '' }})</p>
+                                    </td>
+                                </tr>
+                            </table>
+                        @endforeach
 
                         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:24px;border-top:1px solid #e2e8f0;">
                             <tr>

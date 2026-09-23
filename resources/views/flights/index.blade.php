@@ -13,7 +13,7 @@
             <p class="text-xs font-semibold tracking-[0.2em] uppercase text-gold-400">Live fares</p>
             <h1 class="mt-2 font-display text-2xl sm:text-4xl font-bold">
                 @if($routeReady)
-                    {{ $fromLabel }} <span class="text-gold-400">→</span> {{ $toLabel }}
+                    {{ $fromLabel }} <span class="text-gold-400">{{ filled($filters['return_date'] ?? null) ? '⇄' : '→' }}</span> {{ $toLabel }}
                 @else
                     Search flights
                 @endif
@@ -21,8 +21,8 @@
             <p class="mt-2 text-sm text-white/65">
                 @if(!empty($filters['date']))
                     {{ \Carbon\Carbon::parse($filters['date'])->format('D, j M Y') }}
-                    @if(!empty($filters['return']))
-                        · Return {{ \Carbon\Carbon::parse($filters['return'])->format('D, j M') }}
+                    @if(!empty($filters['return_date']))
+                        · Return {{ \Carbon\Carbon::parse($filters['return_date'])->format('D, j M') }}
                     @endif
                     ·
                 @endif
@@ -44,7 +44,7 @@
                     class="lg:hidden mb-4 w-full rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 px-4 py-3 flex items-center justify-between gap-3 text-left"
                     @click="modify = !modify">
                 <span>
-                    <span class="block text-sm font-semibold text-navy-900">{{ $fromCode }} → {{ $toCode }}</span>
+                    <span class="block text-sm font-semibold text-navy-900">{{ $fromCode }} {{ filled($filters['return_date'] ?? null) ? '⇄' : '→' }} {{ $toCode }}</span>
                     <span class="block mt-0.5 text-xs text-slate-500">
                         {{ !empty($filters['date']) ? \Carbon\Carbon::parse($filters['date'])->format('D, j M') : '' }}
                         · {{ $mix->summary() }}
@@ -63,8 +63,11 @@
                       toCode: @js($toCode ?? ''),
                       toQuery: @js($toLabel ?? ''),
                       url: @js(route('airports.suggest')),
+                      trip: @js($trip ?? 'oneway'),
+                      depart: @js($filters['date'] ?? now()->addDay()->toDateString()),
                   })"
                   @submit="if (!validate()) $event.preventDefault()">
+            @include('partials.trip-type', ['wrapClass' => 'mb-4'])
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3">
                 @include('partials.airport-suggest', [
                     'showSwap' => false,
@@ -73,12 +76,15 @@
                 ])
                 <div>
                     <label class="block text-xs font-semibold uppercase tracking-wide text-slate-400 mb-1">Date</label>
-                    <input type="date" name="date" value="{{ $filters['date'] ?? now()->addDay()->toDateString() }}" min="{{ now()->toDateString() }}" required
+                    <input type="date" name="date" x-model="depart" min="{{ now()->toDateString() }}" required
                            class="w-full rounded-2xl border border-slate-200 px-3 py-2.5 bg-slate-50">
                 </div>
-                <div>
+                <div x-show="trip === 'return'" x-cloak>
                     <label class="block text-xs font-semibold uppercase tracking-wide text-slate-400 mb-1">Return</label>
-                    <input type="date" name="return" value="{{ $filters['return'] ?? '' }}" min="{{ now()->toDateString() }}"
+                    <input type="date" name="return_date" value="{{ $filters['return_date'] ?? '' }}"
+                           :min="depart || '{{ now()->toDateString() }}'"
+                           :required="trip === 'return'"
+                           :disabled="trip !== 'return'"
                            class="w-full rounded-2xl border border-slate-200 px-3 py-2.5 bg-slate-50">
                 </div>
                 <div>
@@ -119,7 +125,7 @@
                 <h2 class="mt-1 text-xl font-semibold text-navy-900">
                     Choose your flight
                     @if($routeReady)
-                        <span class="font-normal text-slate-500">· {{ $fromCode }} → {{ $toCode }}</span>
+                        <span class="font-normal text-slate-500">· {{ $fromCode }} {{ filled($filters['return_date'] ?? null) ? '⇄' : '→' }} {{ $toCode }}</span>
                     @endif
                 </h2>
             </div>

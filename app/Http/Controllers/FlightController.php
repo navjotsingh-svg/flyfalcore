@@ -22,9 +22,10 @@ class FlightController extends Controller
     {
         $mix = PassengerMix::fromRequest($request);
         $filters = array_merge(
-            $request->only(['from', 'to', 'date', 'return', 'cabin', 'sort']),
+            $request->only(['from', 'to', 'date', 'return', 'return_date', 'cabin', 'sort']),
             $mix->query(),
         );
+        $filters['return_date'] = FlightSearchService::returnDate($filters);
         $result = $this->search->search($filters);
 
         return view('flights.index', [
@@ -39,6 +40,7 @@ class FlightController extends Controller
             'toCode' => $this->search->airportCode($filters['to'] ?? null) ?? '',
             'fromLabel' => $this->airports->labelFor($filters['from'] ?? null),
             'toLabel' => $this->airports->labelFor($filters['to'] ?? null),
+            'trip' => filled($filters['return_date'] ?? null) ? 'return' : 'oneway',
         ]);
     }
 

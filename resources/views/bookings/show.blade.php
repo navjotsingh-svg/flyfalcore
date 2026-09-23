@@ -53,27 +53,39 @@
             </div>
         </div>
 
-        <div class="border-t border-slate-100 pt-6">
-            <p class="text-sm text-slate-500">{{ $booking->airlineName() }} · {{ $itinerary['flight_number'] ?? $booking->flight?->full_flight_number }} · {{ $booking->cabinLabel() }}</p>
-            <h2 class="text-2xl font-extrabold mt-1">{{ $booking->routeLabel() }}</h2>
-            <div class="mt-4 grid grid-cols-2 gap-4 text-sm">
-                <div>
-                    <p class="text-slate-400 uppercase text-xs tracking-wide">Depart</p>
-                    @if($depart)
-                        <p class="font-semibold text-lg">{{ \Carbon\Carbon::parse($depart)->format('H:i') }}</p>
-                        <p>{{ \Carbon\Carbon::parse($depart)->format('D, M j, Y') }}</p>
-                    @endif
-                    <p class="mt-1">{{ $itinerary['origin_name'] ?? $booking->flight?->originAirport?->name }} ({{ $itinerary['origin_code'] ?? $booking->flight?->originAirport?->code }})</p>
-                </div>
-                <div>
-                    <p class="text-slate-400 uppercase text-xs tracking-wide">Arrive</p>
-                    @if($arrive)
-                        <p class="font-semibold text-lg">{{ \Carbon\Carbon::parse($arrive)->format('H:i') }}</p>
-                        <p>{{ \Carbon\Carbon::parse($arrive)->format('D, M j, Y') }}</p>
-                    @endif
-                    <p class="mt-1">{{ $itinerary['destination_name'] ?? $booking->flight?->destinationAirport?->name }} ({{ $itinerary['destination_code'] ?? $booking->flight?->destinationAirport?->code }})</p>
-                </div>
+        <div class="border-t border-slate-100 pt-6 space-y-6">
+            <div>
+                <p class="text-sm text-slate-500">{{ $booking->airlineName() }} · {{ $booking->cabinLabel() }}</p>
+                <h2 class="text-2xl font-extrabold mt-1">{{ $booking->routeLabel() }}</h2>
             </div>
+            @foreach($booking->legs() as $leg)
+                @php
+                    $legDepart = $leg['departure_at'] ?? $depart;
+                    $legArrive = $leg['arrival_at'] ?? $arrive;
+                @endphp
+                <div>
+                    <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-gold-600">{{ $leg['label'] ?? 'Flight' }}</p>
+                    <p class="mt-1 text-sm text-slate-500">{{ $leg['flight_number'] ?? '' }}</p>
+                    <div class="mt-3 grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                            <p class="text-slate-400 uppercase text-xs tracking-wide">Depart</p>
+                            @if($legDepart)
+                                <p class="font-semibold text-lg">{{ \Carbon\Carbon::parse($legDepart)->format('H:i') }}</p>
+                                <p>{{ \Carbon\Carbon::parse($legDepart)->format('D, M j, Y') }}</p>
+                            @endif
+                            <p class="mt-1">{{ $leg['origin_name'] ?? $leg['origin_city'] ?? '' }} ({{ $leg['origin_code'] ?? '' }})</p>
+                        </div>
+                        <div>
+                            <p class="text-slate-400 uppercase text-xs tracking-wide">Arrive</p>
+                            @if($legArrive)
+                                <p class="font-semibold text-lg">{{ \Carbon\Carbon::parse($legArrive)->format('H:i') }}</p>
+                                <p>{{ \Carbon\Carbon::parse($legArrive)->format('D, M j, Y') }}</p>
+                            @endif
+                            <p class="mt-1">{{ $leg['destination_name'] ?? $leg['destination_city'] ?? '' }} ({{ $leg['destination_code'] ?? '' }})</p>
+                        </div>
+                    </div>
+                </div>
+            @endforeach
         </div>
 
         @if($booking->duffel_booking_reference)

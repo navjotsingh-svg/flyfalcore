@@ -7,9 +7,19 @@
     $isLiveFare = ($mode ?? 'local') === 'duffel';
     $symbols = ['USD' => '$', 'GBP' => '£', 'EUR' => '€', 'INR' => '₹'];
     $symbol = $symbols[$currency] ?? $currency.' ';
+    $legs = $legs ?? ($offer['legs'] ?? []);
     $routeLabel = $isLiveFare
         ? $offer['origin_code'].' → '.$offer['destination_code'].' · '.$offer['departure_at']->format('D, M j · H:i').' · '.$offer['airline']
         : $flight->originAirport->code.' → '.$flight->destinationAirport->code.' · '.$flight->departure_at->format('D, M j · H:i').' · '.$flight->airline->name;
+    if (count($legs) > 1) {
+        $routeLabel = collect($legs)->map(function ($leg) {
+            $depart = $leg['departure_at'] instanceof \Carbon\CarbonInterface
+                ? $leg['departure_at']
+                : \Carbon\Carbon::parse($leg['departure_at']);
+
+            return ($leg['label'] ?? 'Flight').' '.$leg['origin_code'].' → '.$leg['destination_code'].' · '.$depart->format('D, M j · H:i');
+        })->implode(' · ');
+    }
     $savedPassengers = $savedPassengers ?? [];
     $passengerSlots = $passengerSlots ?? array_fill(0, $passengers, ['type' => 'adult', 'label' => 'Adult', 'hint' => '12+ years on travel date']);
     $mix = $mix ?? null;
@@ -43,6 +53,9 @@
             <input type="hidden" name="adults" value="{{ $mix->adults }}">
             <input type="hidden" name="children" value="{{ $mix->children }}">
             <input type="hidden" name="infants" value="{{ $mix->infants }}">
+        @endif
+        @if(!empty($returnFlight))
+            <input type="hidden" name="return_flight" value="{{ $returnFlight->id }}">
         @endif
 
         <div class="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">

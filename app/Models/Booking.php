@@ -145,6 +145,15 @@ class Booking extends Model
 
     public function routeLabel(): string
     {
+        $legs = $this->legs();
+
+        if (count($legs) > 1) {
+            $origin = $legs[0]['origin_city'] ?? $legs[0]['origin_code'] ?? '';
+            $destination = $legs[0]['destination_city'] ?? $legs[0]['destination_code'] ?? '';
+
+            return trim($origin.' ⇄ '.$destination);
+        }
+
         $origin = $this->itinerary['origin_city'] ?? $this->flight?->originAirport?->city;
         $destination = $this->itinerary['destination_city'] ?? $this->flight?->destinationAirport?->city;
 
@@ -153,6 +162,32 @@ class Booking extends Model
         }
 
         return 'Flight booking';
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function legs(): array
+    {
+        $legs = $this->itinerary['legs'] ?? [];
+
+        if (is_array($legs) && $legs !== []) {
+            return array_values($legs);
+        }
+
+        return [[
+            'label' => 'Outbound',
+            'airline' => $this->airlineName(),
+            'flight_number' => $this->itinerary['flight_number'] ?? $this->flight?->full_flight_number,
+            'origin_code' => $this->itinerary['origin_code'] ?? $this->flight?->originAirport?->code,
+            'origin_city' => $this->itinerary['origin_city'] ?? $this->flight?->originAirport?->city,
+            'origin_name' => $this->itinerary['origin_name'] ?? $this->flight?->originAirport?->name,
+            'destination_code' => $this->itinerary['destination_code'] ?? $this->flight?->destinationAirport?->code,
+            'destination_city' => $this->itinerary['destination_city'] ?? $this->flight?->destinationAirport?->city,
+            'destination_name' => $this->itinerary['destination_name'] ?? $this->flight?->destinationAirport?->name,
+            'departure_at' => $this->itinerary['departure_at'] ?? optional($this->flight?->departure_at)->toIso8601String(),
+            'arrival_at' => $this->itinerary['arrival_at'] ?? optional($this->flight?->arrival_at)->toIso8601String(),
+        ]];
     }
 
     public function cabinLabel(): string

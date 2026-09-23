@@ -37,6 +37,105 @@ class FlightCheckoutTest extends TestCase
             ->assertSee('Modify search');
     }
 
+    public function test_return_search_sends_two_slices_and_shows_both_legs(): void
+    {
+        config()->set('services.duffel.token', 'duffel_test_fake');
+
+        $out = now()->addWeek()->toDateString();
+        $back = now()->addWeeks(2)->toDateString();
+
+        Http::fake([
+            'https://api.duffel.com/air/offer_requests*' => Http::response([
+                'data' => ['id' => 'orq_return'],
+            ], 201),
+            'https://api.duffel.com/air/offers*' => Http::response([
+                'data' => [$this->offerFixture(roundTrip: true)],
+            ], 200),
+        ]);
+
+        $this->get('/flights?from=LHR&to=JFK&date='.$out.'&return_date='.$back)
+            ->assertOk()
+            ->assertSee('Round trip')
+            ->assertSee('Outbound')
+            ->assertSee('Return')
+            ->assertSee('JFK')
+            ->assertSee('LHR');
+
+        Http::assertSent(function (\Illuminate\Http\Client\Request $request) use ($out, $back) {
+            if (! str_contains($request->url(), '/air/offer_requests')) {
+                return false;
+            }
+
+            $slices = data_get($request->data(), 'data.slices') ?? data_get($request->data(), 'slices');
+
+            return is_array($slices)
+                && count($slices) === 2
+                && ($slices[0]['origin'] ?? null) === 'LHR'
+                && ($slices[0]['destination'] ?? null) === 'JFK'
+                && ($slices[0]['departure_date'] ?? null) === $out
+                && ($slices[1]['origin'] ?? null) === 'JFK'
+                && ($slices[1]['destination'] ?? null) === 'LHR'
+                && ($slices[1]['departure_date'] ?? null) === $back;
+        });
+    }
+
+    public function test_local_return_pairs_outbound_and_inbound_flights(): void
+    {
+        $outbound = $this->makeFlight();
+        $inbound = Flight::create([
+            'airline_id' => $outbound->airline_id,
+            'flight_number' => '205',
+            'origin_airport_id' => $outbound->destination_airport_id,
+            'destination_airport_id' => $outbound->origin_airport_id,
+            'departure_at' => now()->addDays(12)->setTime(11, 0),
+            'arrival_at' => now()->addDays(12)->setTime(19, 0),
+            'duration_minutes' => 480,
+            'price' => 149.00,
+            'cabin_class' => 'economy',
+            'total_seats' => 180,
+            'available_seats' => 40,
+            'status' => 'scheduled',
+        ]);
+
+        $this->get('/flights?from=LHR&to=JFK&date='.$outbound->departure_at->toDateString().'&return_date='.$inbound->departure_at->toDateString())
+            ->assertOk()
+            ->assertSee('Round trip')
+            ->assertSee('Outbound')
+            ->assertSee('Return')
+            ->assertSee('return_flight='.$inbound->id, false);
+
+        $this->get(route('bookings.create', ['flight' => $outbound, 'return_flight' => $inbound->id]))
+            ->assertOk()
+            ->assertSee('Outbound')
+            ->assertSee('Return');
+
+        $this->post(route('bookings.store', $outbound), [
+            'contact_name' => 'Ada Lovelace',
+            'contact_email' => 'ada@example.com',
+            'return_flight' => $inbound->id,
+            'adults' => 1,
+            'passengers' => [[
+                'type' => 'adult',
+                'first_name' => 'Ada',
+                'last_name' => 'Lovelace',
+                'date_of_birth' => '1988-01-15',
+                'gender' => 'female',
+            ]],
+        ]);
+
+        $this->assertDatabaseHas('bookings', [
+            'contact_email' => 'ada@example.com',
+            'total_amount' => 348.00,
+        ]);
+
+        $booking = \App\Models\Booking::query()->where('contact_email', 'ada@example.com')->first();
+        $this->assertNotNull($booking);
+        $this->assertCount(2, $booking->legs());
+        $this->assertSame('Return', $booking->legs()[1]['label']);
+        $this->assertSame(49, $outbound->fresh()->available_seats);
+        $this->assertSame(39, $inbound->fresh()->available_seats);
+    }
+
     public function test_search_sends_adult_child_and_infant_types_to_duffel(): void
     {
         config()->set('services.duffel.token', 'duffel_test_fake');
@@ -561,27 +660,45 @@ class FlightCheckoutTest extends TestCase
         ]);
     }
 
-    protected function offerFixture(): array
+    protected function offerFixture(bool $roundTrip = false): array
     {
+        $outbound = [
+            'duration' => 'PT8H',
+            'segments' => [[
+                'departing_at' => now()->addWeek()->setTime(9, 0)->toIso8601String(),
+                'arriving_at' => now()->addWeek()->setTime(17, 0)->toIso8601String(),
+                'marketing_carrier' => ['iata_code' => 'BA', 'name' => 'British Airways'],
+                'marketing_carrier_flight_number' => '178',
+                'origin' => ['iata_code' => 'LHR', 'name' => 'Heathrow', 'city_name' => 'London'],
+                'destination' => ['iata_code' => 'JFK', 'name' => 'John F Kennedy', 'city_name' => 'New York'],
+            ]],
+        ];
+
+        $slices = [$outbound];
+
+        if ($roundTrip) {
+            $slices[] = [
+                'duration' => 'PT7H30M',
+                'segments' => [[
+                    'departing_at' => now()->addWeeks(2)->setTime(18, 0)->toIso8601String(),
+                    'arriving_at' => now()->addWeeks(2)->setTime(6, 30)->addDay()->toIso8601String(),
+                    'marketing_carrier' => ['iata_code' => 'BA', 'name' => 'British Airways'],
+                    'marketing_carrier_flight_number' => '179',
+                    'origin' => ['iata_code' => 'JFK', 'name' => 'John F Kennedy', 'city_name' => 'New York'],
+                    'destination' => ['iata_code' => 'LHR', 'name' => 'Heathrow', 'city_name' => 'London'],
+                ]],
+            ];
+        }
+
         return [
             'id' => 'off_test_1',
             'offer_request_id' => 'orq_test',
-            'total_amount' => '350.00',
+            'total_amount' => $roundTrip ? '620.00' : '350.00',
             'total_currency' => 'GBP',
             'cabin_class' => 'economy',
             'owner' => ['name' => 'British Airways', 'iata_code' => 'BA'],
             'passengers' => [['id' => 'pas_1', 'type' => 'adult']],
-            'slices' => [[
-                'duration' => 'PT8H',
-                'segments' => [[
-                    'departing_at' => now()->addWeek()->setTime(9, 0)->toIso8601String(),
-                    'arriving_at' => now()->addWeek()->setTime(17, 0)->toIso8601String(),
-                    'marketing_carrier' => ['iata_code' => 'BA', 'name' => 'British Airways'],
-                    'marketing_carrier_flight_number' => '178',
-                    'origin' => ['iata_code' => 'LHR', 'name' => 'Heathrow', 'city_name' => 'London'],
-                    'destination' => ['iata_code' => 'JFK', 'name' => 'John F Kennedy', 'city_name' => 'New York'],
-                ]],
-            ]],
+            'slices' => $slices,
         ];
     }
 

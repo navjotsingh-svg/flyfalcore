@@ -37,21 +37,32 @@ class BookingController extends Controller
         abort_if($flight->available_seats < $seated, 422, 'Not enough seats available.');
         abort_if($flight->status !== 'scheduled' || $flight->departure_at->isPast(), 422, 'This flight is not available for booking.');
 
+        $returnFlight = $this->resolveReturnFlight($request, $flight);
+        if ($returnFlight && $returnFlight->available_seats < $seated) {
+            abort(422, 'Not enough seats available on the return flight.');
+        }
+
+        $offer = $this->search->presentLocalOffer($flight, $returnFlight);
         $passengerSlots = $mix->slots();
         $ancillaries = AncillaryCatalog::forLocal($flight, $passengerSlots, 'INR');
 
         return view('bookings.create', [
             'mode' => 'local',
             'flight' => $flight,
-            'offer' => null,
+            'returnFlight' => $returnFlight,
+            'offer' => $offer,
+            'legs' => $offer['legs'],
             'passengers' => $mix->totalCount(),
             'passengerSlots' => $passengerSlots,
             'mix' => $mix,
             'travelDate' => $flight->departure_at->toDateString(),
-            'total' => $flight->price * $seated,
+            'total' => $offer['price'] * $seated,
             'currency' => 'INR',
             'ancillaries' => $ancillaries,
-            'formAction' => route('bookings.store', $flight),
+            'formAction' => route('bookings.store', array_filter([
+                'flight' => $flight,
+                'return_flight' => $returnFlight?->id,
+            ])),
             'paypalReady' => $this->paypal->configured(),
             'savedPassengers' => $this->savedPassengersForCheckout(),
         ]);
@@ -76,7 +87,9 @@ class BookingController extends Controller
         return view('bookings.create', [
             'mode' => 'duffel',
             'flight' => null,
+            'returnFlight' => null,
             'offer' => $offerData,
+            'legs' => $offerData['legs'] ?? [],
             'passengers' => $passengers,
             'passengerSlots' => $passengerSlots,
             'mix' => PassengerMix::fromTypes(array_column($passengerSlots, 'type')),
@@ -93,6 +106,7 @@ class BookingController extends Controller
     public function store(Request $request, Flight $flight): RedirectResponse
     {
         $mix = PassengerMix::fromRequest($request);
+        $returnFlight = $this->resolveReturnFlight($request, $flight);
         $validated = $this->validateBooking($request, duffel: false, expectedTypes: $mix->types(), travelDate: $flight->departure_at);
         $count = $mix->seatedCount();
         $slots = $mix->slots();
@@ -101,14 +115,24 @@ class BookingController extends Controller
 
         abort_if($flight->available_seats < $count, 422, 'Not enough seats available.');
         abort_if($flight->status !== 'scheduled' || $flight->departure_at->isPast(), 422, 'This flight is not available for booking.');
+        abort_if($returnFlight && $returnFlight->available_seats < $count, 422, 'Not enough seats available on the return flight.');
 
-        $booking = DB::transaction(function () use ($validated, $flight, $count, $mix, $extras) {
+        $booking = DB::transaction(function () use ($validated, $flight, $returnFlight, $count, $mix, $extras) {
             $lockedFlight = Flight::query()->lockForUpdate()->findOrFail($flight->id);
             $lockedFlight->load(['airline', 'originAirport', 'destinationAirport']);
+            $lockedReturn = $returnFlight
+                ? Flight::query()->lockForUpdate()->findOrFail($returnFlight->id)->load(['airline', 'originAirport', 'destinationAirport'])
+                : null;
 
             if ($lockedFlight->available_seats < $count) {
                 abort(422, 'Not enough seats available.');
             }
+
+            if ($lockedReturn && $lockedReturn->available_seats < $count) {
+                abort(422, 'Not enough seats available on the return flight.');
+            }
+
+            $presented = $this->search->presentLocalOffer($lockedFlight, $lockedReturn);
 
             $booking = Booking::create([
                 'source' => 'local',
@@ -118,25 +142,11 @@ class BookingController extends Controller
                 'contact_email' => $validated['contact_email'],
                 'contact_phone' => $validated['contact_phone'] ?? null,
                 'passengers_count' => $mix->totalCount(),
-                'total_amount' => round(((float) $lockedFlight->price * $count) + $extras['total'], 2),
+                'total_amount' => round(($presented['price'] * $count) + $extras['total'], 2),
                 'currency' => 'INR',
                 'status' => 'pending',
                 'payment_status' => 'unpaid',
-                'itinerary' => [
-                    'airline' => $lockedFlight->airline->name,
-                    'airline_code' => $lockedFlight->airline->code,
-                    'flight_number' => $lockedFlight->full_flight_number,
-                    'origin_code' => $lockedFlight->originAirport->code,
-                    'origin_city' => $lockedFlight->originAirport->city,
-                    'origin_name' => $lockedFlight->originAirport->name,
-                    'destination_code' => $lockedFlight->destinationAirport->code,
-                    'destination_city' => $lockedFlight->destinationAirport->city,
-                    'destination_name' => $lockedFlight->destinationAirport->name,
-                    'departure_at' => $lockedFlight->departure_at->toIso8601String(),
-                    'arrival_at' => $lockedFlight->arrival_at->toIso8601String(),
-                    'cabin_class' => $lockedFlight->cabin_class,
-                    'extras' => $extras,
-                ],
+                'itinerary' => $this->itineraryFromPresented($presented, $extras),
             ]);
 
             foreach ($validated['passengers'] as $index => $passenger) {
@@ -147,6 +157,7 @@ class BookingController extends Controller
             }
 
             $lockedFlight->decrement('available_seats', $count);
+            $lockedReturn?->decrement('available_seats', $count);
 
             return $booking;
         });
@@ -201,23 +212,7 @@ class BookingController extends Controller
             'currency' => $offerData['currency'],
             'status' => 'pending',
             'payment_status' => 'unpaid',
-            'itinerary' => [
-                'airline' => $offerData['airline'],
-                'airline_code' => $offerData['airline_code'],
-                'flight_number' => $offerData['flight_number'],
-                'origin_code' => $offerData['origin_code'],
-                'origin_city' => $offerData['origin_city'],
-                'origin_name' => $offerData['origin_name'],
-                'destination_code' => $offerData['destination_code'],
-                'destination_city' => $offerData['destination_city'],
-                'destination_name' => $offerData['destination_name'],
-                'departure_at' => $offerData['departure_at']->toIso8601String(),
-                'arrival_at' => $offerData['arrival_at']->toIso8601String(),
-                'cabin_class' => $offerData['cabin_class'],
-                'duration' => $offerData['formatted_duration'],
-                'stops' => $offerData['stops'],
-                'extras' => $extras,
-            ],
+            'itinerary' => $this->itineraryFromPresented($offerData, $extras),
         ]);
 
         foreach ($validated['passengers'] as $index => $passenger) {
@@ -268,6 +263,80 @@ class BookingController extends Controller
         }
 
         return redirect()->route('bookings.show', $booking->booking_reference);
+    }
+
+    protected function resolveReturnFlight(Request $request, Flight $outbound): ?Flight
+    {
+        $id = (int) $request->input('return_flight');
+
+        if ($id < 1) {
+            return null;
+        }
+
+        $return = Flight::query()
+            ->with(['airline', 'originAirport', 'destinationAirport'])
+            ->find($id);
+
+        if (! $return) {
+            return null;
+        }
+
+        if ($return->origin_airport_id !== $outbound->destination_airport_id
+            || $return->destination_airport_id !== $outbound->origin_airport_id) {
+            return null;
+        }
+
+        if ($return->status !== 'scheduled' || $return->departure_at->isPast()) {
+            return null;
+        }
+
+        if ($return->departure_at->lt($outbound->departure_at)) {
+            return null;
+        }
+
+        return $return;
+    }
+
+    /**
+     * @param  array<string, mixed>  $presented
+     * @param  array<string, mixed>  $extras
+     * @return array<string, mixed>
+     */
+    protected function itineraryFromPresented(array $presented, array $extras): array
+    {
+        $legs = array_map(function (array $leg) {
+            foreach (['departure_at', 'arrival_at'] as $key) {
+                if (($leg[$key] ?? null) instanceof \Carbon\CarbonInterface) {
+                    $leg[$key] = $leg[$key]->toIso8601String();
+                }
+            }
+
+            return $leg;
+        }, $presented['legs'] ?? []);
+
+        return [
+            'airline' => $presented['airline'] ?? null,
+            'airline_code' => $presented['airline_code'] ?? null,
+            'flight_number' => $presented['flight_number'] ?? null,
+            'origin_code' => $presented['origin_code'] ?? null,
+            'origin_city' => $presented['origin_city'] ?? null,
+            'origin_name' => $presented['origin_name'] ?? null,
+            'destination_code' => $presented['destination_code'] ?? null,
+            'destination_city' => $presented['destination_city'] ?? null,
+            'destination_name' => $presented['destination_name'] ?? null,
+            'departure_at' => $presented['departure_at'] instanceof \Carbon\CarbonInterface
+                ? $presented['departure_at']->toIso8601String()
+                : ($presented['departure_at'] ?? null),
+            'arrival_at' => $presented['arrival_at'] instanceof \Carbon\CarbonInterface
+                ? $presented['arrival_at']->toIso8601String()
+                : ($presented['arrival_at'] ?? null),
+            'cabin_class' => $presented['cabin_class'] ?? null,
+            'duration' => $presented['formatted_duration'] ?? null,
+            'stops' => $presented['stops'] ?? 0,
+            'is_round_trip' => count($legs) > 1,
+            'legs' => $legs,
+            'extras' => $extras,
+        ];
     }
 
     protected function validateBooking(Request $request, bool $duffel, array $expectedTypes = [], mixed $travelDate = null): array

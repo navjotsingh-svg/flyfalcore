@@ -16,14 +16,29 @@ class FlightSearchService
 {
     public function __construct(protected DuffelClient $duffel) {}
 
+    public static function returnDate(array $filters): ?string
+    {
+        foreach (['return_date', 'return'] as $key) {
+            if (filled($filters[$key] ?? null)) {
+                return (string) $filters[$key];
+            }
+        }
+
+        return null;
+    }
+
     public function search(array $filters): array
     {
         $origin = $this->airportCode($filters['from'] ?? null);
         $destination = $this->airportCode($filters['to'] ?? null);
         $date = $filters['date'] ?? null;
-        $returnDate = $filters['return'] ?? null;
+        $returnDate = static::returnDate($filters);
         $cabin = $this->cabin($filters['cabin'] ?? null);
         $mix = PassengerMix::fromArray($filters);
+
+        if ($returnDate && $date && $returnDate < $date) {
+            $returnDate = null;
+        }
 
         if ($this->duffel->configured() && $origin && $destination && $date) {
             try {
@@ -101,23 +116,52 @@ class FlightSearchService
 
     public function presentDuffelOffer(array $offer, ?string $offerRequestId = null): array
     {
-        $slice = $offer['slices'][0] ?? [];
-        $segments = $slice['segments'] ?? [];
-        $first = $segments[0] ?? [];
-        $last = $segments[array_key_last($segments)] ?? $first;
-        $owner = $offer['owner'] ?? ($first['marketing_carrier'] ?? []);
-        $duration = $this->isoDurationMinutes($slice['duration'] ?? ($offer['total_duration'] ?? 'PT0M'));
+        $slices = $offer['slices'] ?? [];
+        $legs = collect($slices)
+            ->values()
+            ->map(fn (array $slice, int $index) => $this->presentDuffelSlice($slice, $index === 0 ? 'Outbound' : 'Return'))
+            ->all();
+        $firstLeg = $legs[0] ?? $this->presentDuffelSlice($slices[0] ?? [], 'Outbound');
+        $owner = $offer['owner'] ?? [];
 
-        return [
+        return array_merge($firstLeg, [
             'source' => 'duffel',
             'id' => $offer['id'],
             'offer_request_id' => $offerRequestId ?? $offer['offer_request_id'] ?? null,
-            'airline' => $owner['name'] ?? 'Airline',
-            'airline_code' => $owner['iata_code'] ?? '',
-            'flight_number' => trim(($first['marketing_carrier']['iata_code'] ?? '').($first['marketing_carrier_flight_number'] ?? '')),
-            'cabin_class' => $offer['cabin_class'] ?? data_get($first, 'passengers.0.cabin_class', 'economy'),
-            'cabin_label' => AirlineCopy::cabinLabel($offer['cabin_class'] ?? data_get($first, 'passengers.0.cabin_class', 'economy')),
+            'airline' => $owner['name'] ?? ($firstLeg['airline'] ?? 'Airline'),
+            'airline_code' => $owner['iata_code'] ?? ($firstLeg['airline_code'] ?? ''),
+            'cabin_class' => $offer['cabin_class'] ?? $firstLeg['cabin_class'] ?? 'economy',
+            'cabin_label' => AirlineCopy::cabinLabel($offer['cabin_class'] ?? $firstLeg['cabin_class'] ?? 'economy'),
             'available_services' => $offer['available_services'] ?? [],
+            'price' => (float) ($offer['total_amount'] ?? 0),
+            'currency' => $offer['total_currency'] ?? 'USD',
+            'passengers' => $offer['passengers'] ?? [],
+            'expires_at' => isset($offer['expires_at']) ? Carbon::parse($offer['expires_at']) : null,
+            'slices' => $slices,
+            'legs' => $legs,
+            'is_round_trip' => count($legs) > 1,
+            'raw' => $offer,
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $slice
+     * @return array<string, mixed>
+     */
+    protected function presentDuffelSlice(array $slice, string $label): array
+    {
+        $segments = $slice['segments'] ?? [];
+        $first = $segments[0] ?? [];
+        $last = $segments[array_key_last($segments)] ?? $first;
+        $duration = $this->isoDurationMinutes($slice['duration'] ?? 'PT0M');
+        $cabin = data_get($first, 'passengers.0.cabin_class', 'economy');
+
+        return [
+            'label' => $label,
+            'airline' => data_get($first, 'marketing_carrier.name') ?? 'Airline',
+            'airline_code' => data_get($first, 'marketing_carrier.iata_code') ?? '',
+            'flight_number' => trim((data_get($first, 'marketing_carrier.iata_code') ?? '').(data_get($first, 'marketing_carrier_flight_number') ?? '')),
+            'cabin_class' => $cabin,
             'origin_code' => data_get($first, 'origin.iata_code'),
             'origin_city' => data_get($first, 'origin.city_name') ?? data_get($first, 'origin.city.name') ?? data_get($first, 'origin.name'),
             'origin_name' => data_get($first, 'origin.name'),
@@ -130,36 +174,56 @@ class FlightSearchService
             'formatted_duration' => $this->formatMinutes($duration),
             'stops' => max(count($segments) - 1, 0),
             'via' => $this->viaAirports($segments),
-            'price' => (float) ($offer['total_amount'] ?? 0),
-            'currency' => $offer['total_currency'] ?? 'USD',
-            'passengers' => $offer['passengers'] ?? [],
-            'expires_at' => isset($offer['expires_at']) ? Carbon::parse($offer['expires_at']) : null,
-            'slices' => $offer['slices'] ?? [],
-            'raw' => $offer,
         ];
     }
 
     protected function searchLocal(array $filters, int $passengers): Collection
+    {
+        $outbound = $this->localFlights($filters, $passengers, $filters['from'] ?? null, $filters['to'] ?? null, $filters['date'] ?? null);
+        $returnDate = static::returnDate($filters);
+
+        if (! $returnDate) {
+            return $outbound->map(fn (Flight $flight) => $this->presentLocalOffer($flight));
+        }
+
+        $inbound = $this->localFlights($filters, $passengers, $filters['to'] ?? null, $filters['from'] ?? null, $returnDate);
+
+        if ($inbound->isEmpty()) {
+            return $outbound->map(fn (Flight $flight) => $this->presentLocalOffer($flight));
+        }
+
+        $pairs = collect();
+
+        foreach ($outbound->take(8) as $out) {
+            foreach ($inbound->take(8) as $in) {
+                $pairs->push($this->presentLocalOffer($out, $in));
+            }
+        }
+
+        return $pairs->take(20)->values();
+    }
+
+    protected function localFlights(array $filters, int $passengers, mixed $from, mixed $to, ?string $date): Collection
     {
         $query = Flight::query()
             ->with(['airline', 'originAirport', 'destinationAirport'])
             ->searchable()
             ->where('available_seats', '>=', $passengers);
 
-        if (! empty($filters['from']) && is_numeric($filters['from'])) {
-            $query->where('origin_airport_id', (int) $filters['from']);
-        } elseif ($code = $this->airportCode($filters['from'] ?? null)) {
+        if (! empty($from) && is_numeric($from)) {
+            $query->where('origin_airport_id', (int) $from);
+        } elseif ($code = $this->airportCode($from)) {
             $query->whereHas('originAirport', fn ($q) => $q->where('code', $code));
         }
 
-        if (! empty($filters['to']) && is_numeric($filters['to'])) {
-            $query->where('destination_airport_id', (int) $filters['to']);
-        } elseif ($code = $this->airportCode($filters['to'] ?? null)) {
+        if (! empty($to) && is_numeric($to)) {
+            $query->where('destination_airport_id', (int) $to);
+        } elseif ($code = $this->airportCode($to)) {
             $query->whereHas('destinationAirport', fn ($q) => $q->where('code', $code));
         }
 
-        if (! empty($filters['date'])) {
-            $query->onDate($filters['date']);
+        if ($date) {
+            $query->onDate($date);
         }
 
         if (! empty($filters['cabin'])) {
@@ -172,14 +236,53 @@ class FlightSearchService
             default => $query->orderBy('price'),
         };
 
-        return $query->limit(40)->get()->map(fn (Flight $flight) => [
+        return $query->limit(40)->get();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function presentLocalOffer(Flight $outbound, ?Flight $inbound = null): array
+    {
+        $legs = [$this->presentLocalLeg($outbound, 'Outbound')];
+
+        if ($inbound) {
+            $legs[] = $this->presentLocalLeg($inbound, 'Return');
+        }
+
+        $first = $legs[0];
+
+        return array_merge($first, [
             'source' => 'local',
-            'id' => $flight->id,
+            'id' => $outbound->id,
+            'return_flight_id' => $inbound?->id,
+            'airline' => $outbound->airline->name,
+            'airline_code' => $outbound->airline->code,
+            'cabin_class' => $outbound->cabin_class,
+            'cabin_label' => AirlineCopy::cabinLabel($outbound->cabin_class),
+            'price' => (float) $outbound->price + (float) ($inbound?->price ?? 0),
+            'currency' => 'INR',
+            'available_seats' => min($outbound->available_seats, $inbound->available_seats ?? $outbound->available_seats),
+            'model' => $outbound,
+            'return_model' => $inbound,
+            'legs' => $legs,
+            'is_round_trip' => $inbound !== null,
+        ]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function presentLocalLeg(Flight $flight, string $label): array
+    {
+        $flight->loadMissing(['airline', 'originAirport', 'destinationAirport']);
+
+        return [
+            'label' => $label,
             'airline' => $flight->airline->name,
             'airline_code' => $flight->airline->code,
             'flight_number' => $flight->full_flight_number,
             'cabin_class' => $flight->cabin_class,
-            'cabin_label' => AirlineCopy::cabinLabel($flight->cabin_class),
             'origin_code' => $flight->originAirport->code,
             'origin_city' => $flight->originAirport->city,
             'origin_name' => $flight->originAirport->name,
@@ -192,11 +295,7 @@ class FlightSearchService
             'formatted_duration' => $flight->formatted_duration,
             'stops' => 0,
             'via' => [],
-            'price' => (float) $flight->price,
-            'currency' => 'INR',
-            'available_seats' => $flight->available_seats,
-            'model' => $flight,
-        ]);
+        ];
     }
 
     public function airportCode(mixed $value): ?string

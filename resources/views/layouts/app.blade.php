@@ -285,6 +285,8 @@
         document.addEventListener('alpine:init', () => {
             Alpine.data('airportPair', (initial = {}) => ({
                 url: initial.url || '/airports/suggest',
+                trip: initial.trip || 'oneway',
+                depart: initial.depart || '',
                 fromCode: initial.fromCode || '',
                 fromQuery: initial.fromQuery || '',
                 fromItems: [],
