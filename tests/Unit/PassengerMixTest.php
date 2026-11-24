@@ -7,7 +7,7 @@ use Tests\TestCase;
 
 class PassengerMixTest extends TestCase
 {
-    public function test_it_classifies_ages_for_duffel_fare_types(): void
+    public function test_it_classifies_ages_for_live_fare_types(): void
     {
         $travel = '2026-09-22';
 

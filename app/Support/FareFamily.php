@@ -97,6 +97,62 @@ class FareFamily
     }
 
     /**
+     * @param  array<string, mixed>  $raw
+     * @return array<string, mixed>
+     */
+    public static function termsFromTbo(array $raw, string $currency = 'INR'): array
+    {
+        $refundable = (bool) ($raw['IsRefundable'] ?? false);
+        $cabinBaggage = trim((string) data_get($raw, 'Segments.0.0.CabinBaggage', ''));
+        $checked = trim((string) data_get($raw, 'Segments.0.0.Baggage', ''));
+        $brand = trim((string) ($raw['FareClassification']['Type'] ?? $raw['FareClassification']['Color'] ?? ''));
+
+        return [
+            'change' => [
+                'allowed' => true,
+                'label' => 'Change policy from the airline',
+                'detail' => null,
+            ],
+            'refund' => [
+                'allowed' => $refundable,
+                'label' => $refundable ? 'Refundable' : 'Not refundable',
+                'detail' => null,
+            ],
+            'hold' => [
+                'allowed' => (bool) ($raw['IsHoldAllowed'] ?? true),
+                'label' => ! empty($raw['IsHoldAllowed']) ? 'Hold price & space' : 'Pay now to confirm this fare',
+                'detail' => null,
+            ],
+            'bags' => [
+                [
+                    'type' => 'carry_on',
+                    'included' => $cabinBaggage !== '' && ! str_contains(strtolower($cabinBaggage), 'nil'),
+                    'label' => $cabinBaggage !== '' ? 'Cabin bag '.$cabinBaggage : 'Carry-on bag not included',
+                ],
+                [
+                    'type' => 'checked',
+                    'included' => $checked !== '' && ! str_contains(strtolower($checked), 'nil'),
+                    'label' => $checked !== '' ? 'Checked bag '.$checked : 'Checked bag not included',
+                ],
+            ],
+            'emissions' => null,
+            'fare_brand' => $brand !== '' ? $brand : static::fareBrand(['cabin_class' => static::tboCabin($raw)]),
+        ];
+    }
+
+    public static function tboCabin(array $raw): string
+    {
+        $class = (int) data_get($raw, 'Segments.0.0.CabinClass', data_get($raw, 'Segments.0.0.Airline.CabinClass', 2));
+
+        return match ($class) {
+            3 => 'premium_economy',
+            4, 5 => 'business',
+            6 => 'first',
+            default => 'economy',
+        };
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public static function termsForLocal(string $cabin, string $currency = 'INR'): array

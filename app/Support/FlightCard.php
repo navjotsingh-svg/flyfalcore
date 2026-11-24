@@ -38,18 +38,18 @@ class FlightCard
             $bookQuery['return_flight'] = $offer['return_flight_id'];
         }
 
-        $currency = $offer['currency'] ?? 'USD';
+        $currency = $offer['currency'] ?? 'INR';
         $fromPrice = (float) ($offer['from_price'] ?? $offer['price']);
         $formattedLegs = array_map(fn (array $leg) => static::leg($leg), $legs);
         $roundTrip = count($formattedLegs) > 1;
         $selectQuery = $bookQuery;
-        $selectUrl = ($offer['source'] ?? '') === 'duffel'
+        $selectUrl = ($offer['source'] ?? '') === 'tbo'
             ? route('offers.show', $offer['id'])
             : route('flights.fares', array_merge(['flight' => $offer['id']], $selectQuery));
 
         return [
             'id' => (string) $offer['id'],
-            'source' => ($offer['source'] ?? 'local') === 'duffel' ? 'live' : ($offer['source'] ?? 'local'),
+            'source' => ($offer['source'] ?? 'local') === 'tbo' ? 'live' : ($offer['source'] ?? 'local'),
             'airline' => $offer['airline'] ?? ($formattedLegs[0]['airline'] ?? 'Airline'),
             'airline_code' => $offer['airline_code'] ?? ($formattedLegs[0]['airline_code'] ?? ''),
             'cabin' => $offer['cabin_label'] ?? AirlineCopy::cabinLabel($offer['cabin_class'] ?? 'economy'),

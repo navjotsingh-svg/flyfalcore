@@ -84,6 +84,17 @@
             background-position: center;
         }
         [x-cloak] { display: none !important; }
+        .home-search input[type="date"] {
+            color-scheme: light;
+            min-height: 2.25rem;
+            height: 2.25rem;
+        }
+        .home-search input[type="date"]::-webkit-calendar-picker-indicator {
+            opacity: 0.45;
+            cursor: pointer;
+            margin: 0;
+            padding: 0;
+        }
     </style>
     @stack('head')
 </head>
@@ -251,9 +262,9 @@
             <div class="max-w-[1320px] mx-auto px-4 sm:px-6 lg:px-8 py-5 flex flex-col md:flex-row items-center justify-between gap-3 text-xs text-white/50">
                 <p>© {{ date('Y') }} {{ $falcore['company'] }}. All Rights Reserved.</p>
                 <div class="flex items-center gap-4">
-                    <a class="hover:text-white" href="{{ route('about') }}">Privacy Policy</a>
-                    <a class="hover:text-white" href="{{ route('about') }}">Terms &amp; Conditions</a>
-                    <a class="hover:text-white" href="{{ route('contact') }}">Cookie Policy</a>
+                    <a class="hover:text-white" href="{{ route('privacy') }}">Privacy Policy</a>
+                    <a class="hover:text-white" href="{{ route('terms') }}">Terms &amp; Conditions</a>
+                    <a class="hover:text-white" href="{{ route('cookies') }}">Cookie Policy</a>
                 </div>
             </div>
         </div>

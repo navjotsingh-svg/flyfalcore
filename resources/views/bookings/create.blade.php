@@ -4,7 +4,7 @@
 
 @section('content')
 @php
-    $isLiveFare = ($mode ?? 'local') === 'duffel';
+    $isLiveFare = ($mode ?? 'local') === 'tbo';
     $symbols = ['USD' => '$', 'GBP' => '£', 'EUR' => '€', 'INR' => '₹'];
     $symbol = $symbols[$currency] ?? $currency.' ';
     $legs = $legs ?? ($offer['legs'] ?? []);

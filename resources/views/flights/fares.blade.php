@@ -7,8 +7,8 @@
     $card = \App\Support\FlightCard::fromOffer($offer, $mix);
     $selectedId = (string) $offer['id'];
     $rows = collect($cards)->map(function (array $fare) use ($mix) {
-        $terms = $fare['terms'] ?? \App\Support\FareFamily::termsForLocal($fare['cabin_class'] ?? 'economy', $fare['currency'] ?? 'USD');
-        $checkout = ($fare['source'] ?? '') === 'duffel'
+        $terms = $fare['terms'] ?? \App\Support\FareFamily::termsForLocal($fare['cabin_class'] ?? 'economy', $fare['currency'] ?? 'INR');
+        $checkout = ($fare['source'] ?? '') === 'tbo'
             ? route('offers.book', $fare['id'])
             : route('bookings.create', array_filter(array_merge(
                 ['flight' => $fare['id']],
@@ -21,7 +21,7 @@
             'cabin' => $fare['cabin_label'] ?? \App\Support\AirlineCopy::cabinLabel($fare['cabin_class'] ?? 'economy'),
             'brand' => $terms['fare_brand'] ?? 'Standard',
             'price' => (float) $fare['price'],
-            'price_label' => \App\Support\FareFamily::money($fare['price'], $fare['currency'] ?? 'USD'),
+            'price_label' => \App\Support\FareFamily::money($fare['price'], $fare['currency'] ?? 'INR'),
             'airline' => $fare['airline'] ?? '',
             'checkout' => $checkout,
             'change' => $terms['change'] ?? ['allowed' => false, 'label' => 'Change policy from the airline'],

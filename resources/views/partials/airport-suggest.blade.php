@@ -4,6 +4,10 @@
 @endphp
 <div class="relative {{ $fromWrap ?? '' }}" @click.outside="close('from')">
     <label class="{{ $labelClass }}">From</label>
+    <div class="relative">
+    @if(!empty($fromIcon))
+        <span class="pointer-events-none absolute {{ $iconPosition ?? 'left-3' }} top-1/2 -translate-y-1/2 text-gold-600"><i class="fa-solid {{ $fromIcon }}"></i></span>
+    @endif
     <input type="hidden" name="from" :value="fromCode">
     <input type="text"
            id="{{ $fromId ?? 'from-airport' }}"
@@ -16,7 +20,8 @@
            @keydown.escape="close('from')"
            autocomplete="off"
            placeholder="City or airport"
-           class="{{ $inputClass }}">
+           class="{{ $inputClass }} {{ !empty($fromIcon) ? ($iconPadClass ?? 'pl-10') : '' }}">
+    </div>
     <ul x-cloak x-show="fromOpen && fromItems.length"
         @mousedown.prevent
         class="absolute left-0 right-0 top-full z-30 mt-1 max-h-64 overflow-auto rounded-xl border border-slate-200 bg-white py-1 shadow-card">
@@ -37,12 +42,18 @@
 
 @if($showSwap ?? true)
     <div class="{{ $swapWrap ?? 'hidden md:flex md:col-span-1 items-center justify-center pb-1' }}">
-        <button type="button" @click="swap()" class="h-10 w-10 rounded-full border border-slate-200 text-navy-900 hover:bg-gold-50 transition" aria-label="Swap airports">⇄</button>
+        <button type="button" @click="swap()" class="{{ $swapButtonClass ?? 'h-10 w-10 rounded-full border border-slate-200 text-navy-900 hover:bg-gold-50 transition' }}" aria-label="Swap airports">
+            <i class="fa-solid fa-arrow-right-arrow-left text-sm"></i>
+        </button>
     </div>
 @endif
 
 <div class="relative {{ $toWrap ?? '' }}" @click.outside="close('to')">
     <label class="{{ $labelClass }}">To</label>
+    <div class="relative">
+    @if(!empty($toIcon))
+        <span class="pointer-events-none absolute {{ $toIconPosition ?? $iconPosition ?? 'left-3' }} top-1/2 -translate-y-1/2 text-gold-600"><i class="fa-solid {{ $toIcon }}"></i></span>
+    @endif
     <input type="hidden" name="to" :value="toCode">
     <input type="text"
            id="{{ $toId ?? 'to-airport' }}"
@@ -55,7 +66,8 @@
            @keydown.escape="close('to')"
            autocomplete="off"
            placeholder="City or airport"
-           class="{{ $inputClass }}">
+           class="{{ $inputClass }} {{ !empty($toIcon) ? ($toIconPadClass ?? $iconPadClass ?? 'pl-10') : '' }}">
+    </div>
     <ul x-cloak x-show="toOpen && toItems.length"
         @mousedown.prevent
         class="absolute left-0 right-0 top-full z-30 mt-1 max-h-64 overflow-auto rounded-xl border border-slate-200 bg-white py-1 shadow-card">

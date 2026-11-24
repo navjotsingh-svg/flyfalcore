@@ -48,35 +48,38 @@ DB_PASSWORD=
 
 4. Run `php artisan migrate --seed`
 
-## Live flights (Duffel) and payments (PayPal)
+## Live flights (TBO) and payments (PayPal)
 
-Search uses [Duffel](https://duffel.com/docs/guides/getting-started-with-flights) when a test/live token is present. After passenger details, checkout goes to PayPal; on successful capture Falcore issues the Duffel order (`payments[].type = balance`).
+Search and ticket issuance use the [TBO Air API](https://www.tboholidays.com/) (Travel Boutique Online / TekTravels). After passenger details, checkout goes to PayPal; on successful capture Falcore books/tickets the fare with TBO.
 
 Add these to `.env`:
 
 ```env
 APP_URL=http://127.0.0.1:8000
 
-DUFFEL_ACCESS_TOKEN=duffel_test_...
+TBO_CLIENT_ID=
+TBO_USERNAME=
+TBO_PASSWORD=
+TBO_END_USER_IP=
+TBO_CURRENCY=INR
 PAYPAL_CLIENT_ID=
 PAYPAL_CLIENT_SECRET=
 PAYPAL_MODE=sandbox
 ```
 
-1. Create a Duffel test token: Dashboard → More → Developers → Access tokens.
+1. Ask TBO to whitelist your public server IP for your ClientId, then set `TBO_END_USER_IP` to that IP.
 2. Create a PayPal REST app: [developer.paypal.com](https://developer.paypal.com/dashboard/applications) (sandbox).
 3. Keep `APP_URL` equal to the site PayPal will return to (`/payments/paypal/{reference}/success`).
-4. Fund the Duffel test balance if order creation fails after PayPal capture.
 
-Without a Duffel token, Falcore falls back to sample flights. Without PayPal keys, Duffel bookings stay unpaid until you add them.
+Without TBO credentials, Falcore falls back to sample flights. Without PayPal keys, live bookings stay unpaid until you add them.
 
 ### Checkout flow
 
-1. Search (Duffel offer request + offers)
+1. Search (TBO Authenticate + Search)
 2. Passenger form
 3. PayPal order (intent `CAPTURE`)
 4. Capture payment
-5. Create Duffel order with the captured fare
+5. Book / ticket with TBO
 
 ## Admin panel
 
@@ -94,10 +97,11 @@ Only users with `is_admin` can sign in.
 
 ## Features
 
-- Live Duffel fares (one-way or return)
+- Live TBO fares (one-way or return)
 - PayPal sandbox/live checkout
 - Sample flight fallback
 - Booking lookup by reference + email
+- Traveler cancel / re-issue for paid TBO tickets
 - Traveler accounts with trip history at `/account/bookings`
 
 ## Demo login user (seeded)

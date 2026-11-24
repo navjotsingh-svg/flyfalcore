@@ -81,7 +81,7 @@ class Booking extends Model
 
     public function formattedTotal(): string
     {
-        return $this->formatMoney((float) $this->total_amount, $this->currency ?: 'USD');
+        return $this->formatMoney((float) $this->total_amount, $this->currency ?: 'INR');
     }
 
     public function formatMoney(float $amount, string $currency): string
@@ -101,22 +101,29 @@ class Booking extends Model
 
     public function paypalCurrency(): string
     {
-        $currency = strtoupper($this->currency ?: 'USD');
-        $supported = ['USD', 'EUR', 'GBP', 'AUD', 'CAD', 'JPY'];
+        $currency = strtoupper($this->currency ?: 'INR');
+        $supported = ['USD', 'EUR', 'GBP', 'AUD', 'CAD', 'JPY', 'INR'];
+        $preferred = strtoupper((string) config('services.paypal.currency', ''));
 
-        return in_array($currency, $supported, true) ? $currency : 'USD';
+        if ($preferred !== '' && in_array($preferred, $supported, true)) {
+            return $preferred;
+        }
+
+        return in_array($currency, $supported, true) ? $currency : 'INR';
     }
 
     public function paypalAmount(): string
     {
         $amount = (float) $this->total_amount;
-        $currency = strtoupper($this->currency ?: 'USD');
+        $bookingCurrency = strtoupper($this->currency ?: 'INR');
+        $paypalCurrency = $this->paypalCurrency();
 
-        if (! in_array($currency, ['USD', 'EUR', 'GBP', 'AUD', 'CAD', 'JPY'], true)) {
-            $amount = round($amount / 83, 2);
+        if ($bookingCurrency === 'INR' && $paypalCurrency === 'USD') {
+            $rate = max(1.0, (float) config('services.fx.inr_per_usd', 83));
+            $amount = round($amount / $rate, 2);
         }
 
-        if ($this->paypalCurrency() === 'JPY') {
+        if ($paypalCurrency === 'JPY') {
             return (string) (int) round($amount);
         }
 
@@ -128,14 +135,45 @@ class Booking extends Model
         $phone = preg_replace('/[^\d+]/', '', (string) $this->contact_phone);
 
         if (blank($phone)) {
-            return '+442080160508';
+            return '+919999999999';
         }
 
         if (! str_starts_with($phone, '+')) {
-            $phone = '+'.ltrim($phone, '0');
+            $digits = ltrim($phone, '0');
+            $phone = strlen($digits) === 10 ? '+91'.$digits : '+'.$digits;
         }
 
         return $phone;
+    }
+
+    public function airlinePnr(): ?string
+    {
+        return filled($this->duffel_booking_reference) ? (string) $this->duffel_booking_reference : null;
+    }
+
+    public function airlineBookingId(): ?string
+    {
+        return filled($this->duffel_order_id) ? (string) $this->duffel_order_id : null;
+    }
+
+    public function grantAccess(): void
+    {
+        session(['booking_access.'.$this->booking_reference => true]);
+    }
+
+    public function accessGranted(): bool
+    {
+        if (auth()->check()) {
+            if ((int) auth()->id() === (int) $this->user_id) {
+                return true;
+            }
+
+            if (auth()->user()?->is_admin) {
+                return true;
+            }
+        }
+
+        return (bool) session('booking_access.'.$this->booking_reference);
     }
 
     public function airlineName(): string

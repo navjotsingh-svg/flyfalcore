@@ -3,15 +3,10 @@
 namespace App\Services\Airports;
 
 use App\Models\Airport;
-use App\Services\Duffel\DuffelClient;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Log;
-use Throwable;
 
 class AirportSuggestService
 {
-    public function __construct(protected DuffelClient $duffel) {}
-
     public function suggest(string $query, int $limit = 8): Collection
     {
         $query = trim($query);
@@ -20,13 +15,7 @@ class AirportSuggestService
             return collect();
         }
 
-        $matches = $this->localMatches($query);
-
-        if ($this->duffel->configured()) {
-            $matches = $matches->concat($this->duffelMatches($query));
-        }
-
-        return $matches
+        return $this->localMatches($query)
             ->unique('code')
             ->sortBy(fn (array $airport) => $this->rank($airport, $query))
             ->take($limit)
@@ -94,36 +83,6 @@ class AirportSuggestService
             ]);
 
         return $fromDatabase->concat($fromCatalog);
-    }
-
-    protected function duffelMatches(string $query): Collection
-    {
-        try {
-            $places = $this->duffel->suggestPlaces($query);
-        } catch (Throwable $exception) {
-            Log::info('Airport suggestions fell back to the local catalog.', [
-                'message' => $exception->getMessage(),
-            ]);
-
-            return collect();
-        }
-
-        return collect($places)
-            ->filter(fn (array $place) => filled(data_get($place, 'iata_code')))
-            ->map(function (array $place) {
-                $code = strtoupper((string) data_get($place, 'iata_code'));
-                $city = data_get($place, 'city_name')
-                    ?? data_get($place, 'city.name')
-                    ?? data_get($place, 'name');
-
-                return [
-                    'code' => $code,
-                    'city' => $city,
-                    'name' => data_get($place, 'name', $city),
-                    'country' => data_get($place, 'iata_country_code') ?? data_get($place, 'country_name', ''),
-                    'label' => "{$city} ({$code})",
-                ];
-            });
     }
 
     protected function catalog(): Collection

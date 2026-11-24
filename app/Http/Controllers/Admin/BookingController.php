@@ -83,7 +83,7 @@ class BookingController extends Controller
     protected function validated(Request $request, ?Booking $booking = null): array
     {
         return $request->validate([
-            'source' => ['required', 'in:local,duffel'],
+            'source' => ['required', 'in:local,tbo'],
             'user_id' => ['nullable', 'exists:users,id'],
             'flight_id' => ['nullable', 'exists:flights,id'],
             'contact_name' => ['required', 'string', 'max:120'],

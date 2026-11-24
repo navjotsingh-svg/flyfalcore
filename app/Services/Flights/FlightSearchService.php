@@ -2,19 +2,23 @@
 
 namespace App\Services\Flights;
 
-use App\Exceptions\DuffelException;
+use App\Exceptions\TboException;
 use App\Models\Airport;
 use App\Models\Flight;
-use App\Services\Duffel\DuffelClient;
+use App\Services\Tbo\TboClient;
 use App\Support\AirlineCopy;
+use App\Support\FareFamily;
 use App\Support\PassengerMix;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 class FlightSearchService
 {
-    public function __construct(protected DuffelClient $duffel) {}
+    public function __construct(
+        protected TboClient $tbo,
+    ) {}
 
     public static function returnDate(array $filters): ?string
     {
@@ -40,15 +44,15 @@ class FlightSearchService
             $returnDate = null;
         }
 
-        if ($this->duffel->configured() && $origin && $destination && $date) {
+        if ($this->tbo->configured() && $origin && $destination && $date) {
             try {
                 return [
-                    'source' => 'duffel',
-                    'offers' => $this->searchDuffel($origin, $destination, $date, $returnDate, $cabin, $mix, $filters['sort'] ?? 'price'),
+                    'source' => 'tbo',
+                    'offers' => $this->searchTbo($origin, $destination, $date, $returnDate, $cabin, $mix, $filters['sort'] ?? 'price'),
                     'message' => null,
                 ];
-            } catch (DuffelException $exception) {
-                Log::warning('Duffel search failed, falling back to local flights', [
+            } catch (TboException $exception) {
+                Log::warning('TBO search failed, showing sample flights', [
                     'message' => $exception->getMessage(),
                     'errors' => $exception->errors,
                 ]);
@@ -61,16 +65,98 @@ class FlightSearchService
             }
         }
 
+        $searched = filled($origin) && filled($destination) && filled($date);
+
         return [
             'source' => 'local',
             'offers' => $this->searchLocal($filters, $mix->seatedCount()),
-            'message' => $this->duffel->configured()
-                ? 'Choose origin, destination, and date to search live airline fares.'
-                : 'Live airline search is not configured. Showing sample flights for now.',
+            'message' => $searched
+                ? ($this->liveConfigured() ? null : 'Live airline search is not configured. Showing sample flights for now.')
+                : ($this->liveConfigured()
+                    ? 'Choose origin, destination, and date to search live airline fares.'
+                    : 'Live airline search is not configured. Showing sample flights for now.'),
         ];
     }
 
-    protected function searchDuffel(
+    public function liveConfigured(): bool
+    {
+        return $this->tbo->configured();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function liveOffer(string $id): array
+    {
+        if (str_starts_with($id, 'tbo-')) {
+            return $this->cachedTboOffer($id);
+        }
+
+        throw new TboException('This fare has expired. Search again to see live prices.');
+    }
+
+    /**
+     * @param  array<string, mixed>  $offer
+     * @return list<array<string, mixed>>
+     */
+    public function liveFareFamily(array $offer): array
+    {
+        if (($offer['source'] ?? '') !== 'tbo') {
+            return [$offer];
+        }
+
+        $traceId = (string) ($offer['tbo_trace_id'] ?? '');
+        $siblings = collect(Cache::get($this->tboTraceCacheKey($traceId), []))
+            ->map(fn (array $row) => $this->presentTboOffer(
+                $row['raw'],
+                $row['trace_id'],
+                $row['id'],
+                $row['return_raw'] ?? null,
+            ))
+            ->filter(fn (array $row) => ($row['fingerprint'] ?? '') === ($offer['fingerprint'] ?? ''))
+            ->map(fn (array $row) => $row['id'] === ($offer['id'] ?? null) ? $offer : $row)
+            ->values();
+
+        return $siblings->isNotEmpty() ? $siblings->all() : [$offer];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function cachedTboOffer(string $id): array
+    {
+        $cached = Cache::get($this->tboOfferCacheKey($id));
+
+        if (! is_array($cached) || empty($cached['raw'])) {
+            throw new TboException('This fare has expired. Search again to see live prices.');
+        }
+
+        $traceId = (string) $cached['trace_id'];
+        $quoted = $this->tbo->quotedItinerary($traceId, (string) $cached['result_index']);
+        $cached['raw'] = array_replace($cached['raw'], $quoted);
+        $cached['result_index'] = (string) ($quoted['ResultIndex'] ?? $cached['result_index']);
+
+        if (filled($cached['return_result_index'] ?? null)) {
+            $returnQuoted = $this->tbo->quotedItinerary($traceId, (string) $cached['return_result_index']);
+            $cached['return_raw'] = array_replace($cached['return_raw'] ?? [], $returnQuoted);
+            $cached['return_result_index'] = (string) ($returnQuoted['ResultIndex'] ?? $cached['return_result_index']);
+        }
+
+        Cache::put($this->tboOfferCacheKey($id), $cached, now()->addMinutes(20));
+
+        return $this->presentTboOffer(
+            $cached['raw'],
+            $traceId,
+            $id,
+            $cached['return_raw'] ?? null,
+            PassengerMix::fromArray($cached['mix'] ?? ['adults' => 1]),
+        );
+    }
+
+    /**
+     * @return Collection<int, array<string, mixed>>
+     */
+    protected function searchTbo(
         string $origin,
         string $destination,
         string $date,
@@ -79,107 +165,243 @@ class FlightSearchService
         PassengerMix $mix,
         string $sort,
     ): Collection {
-        $slices = [[
-            'origin' => $origin,
-            'destination' => $destination,
-            'departure_date' => $date,
+        $segments = [[
+            'Origin' => $origin,
+            'Destination' => $destination,
+            'FlightCabinClass' => $this->tboCabinClass($cabin),
+            'PreferredDepartureTime' => Carbon::parse($date)->startOfDay()->format('Y-m-d\TH:i:s'),
         ]];
 
         if (filled($returnDate)) {
-            $slices[] = [
-                'origin' => $destination,
-                'destination' => $origin,
-                'departure_date' => $returnDate,
+            $segments[] = [
+                'Origin' => $destination,
+                'Destination' => $origin,
+                'FlightCabinClass' => $this->tboCabinClass($cabin),
+                'PreferredDepartureTime' => Carbon::parse($returnDate)->startOfDay()->format('Y-m-d\TH:i:s'),
             ];
         }
 
-        $payload = [
-            'slices' => $slices,
-            'passengers' => $mix->duffelPassengers(),
-            'max_connections' => 1,
-        ];
+        $response = $this->tbo->search([
+            'AdultCount' => $mix->adults,
+            'ChildCount' => $mix->children,
+            'InfantCount' => $mix->infants,
+            'JourneyType' => filled($returnDate) ? 2 : 1,
+            'DirectFlight' => false,
+            'OneStopFlight' => false,
+            'PreferredAirlines' => null,
+            'Sources' => null,
+            'Segments' => $segments,
+        ]);
 
-        if ($cabin) {
-            $payload['cabin_class'] = $cabin;
+        $traceId = (string) data_get($response, 'Response.TraceId', data_get($response, 'TraceId', ''));
+        [$outbound, $inbound] = $this->tboResultGroups($response);
+        $offers = collect();
+
+        if ($inbound->isNotEmpty()) {
+            foreach ($outbound->take(8) as $out) {
+                foreach ($inbound->take(8) as $in) {
+                    $offers->push($this->storeTboOffer($traceId, $out, $in, $mix));
+                }
+            }
+        } else {
+            foreach ($outbound->take(40) as $row) {
+                $offers->push($this->storeTboOffer($traceId, $row, null, $mix));
+            }
         }
 
-        $request = $this->duffel->createOfferRequest($payload);
-        $offerRequestId = data_get($request, 'data.id');
-        $duffelSort = $sort === 'duration' ? 'total_duration' : 'total_amount';
-        $offers = $this->duffel->listOffers((string) $offerRequestId, 40, $duffelSort);
+        $offers = $offers->filter()->values();
 
-        return collect($offers)
-            ->map(fn (array $offer) => $this->presentDuffelOffer($offer, $offerRequestId))
-            ->filter()
-            ->values();
+        Cache::put($this->tboTraceCacheKey($traceId), $offers->map(fn (array $offer) => [
+            'id' => $offer['id'],
+            'trace_id' => $traceId,
+            'raw' => $offer['raw'],
+            'return_raw' => $offer['return_raw'] ?? null,
+        ])->all(), now()->addMinutes(25));
+
+        return $sort === 'duration'
+            ? $offers->sortBy('duration_minutes')->values()
+            : $offers->sortBy('price')->values();
     }
 
-    public function presentDuffelOffer(array $offer, ?string $offerRequestId = null): array
+    /**
+     * @param  array<string, mixed>  $response
+     * @return array{0: Collection<int, array<string, mixed>>, 1: Collection<int, array<string, mixed>>}
+     */
+    protected function tboResultGroups(array $response): array
     {
-        $slices = $offer['slices'] ?? [];
-        $legs = collect($slices)
-            ->values()
-            ->map(fn (array $slice, int $index) => $this->presentDuffelSlice($slice, $index === 0 ? 'Outbound' : 'Return'))
-            ->all();
-        $firstLeg = $legs[0] ?? $this->presentDuffelSlice($slices[0] ?? [], 'Outbound');
-        $owner = $offer['owner'] ?? [];
-        $currency = $offer['total_currency'] ?? 'USD';
-        $cabin = $offer['cabin_class'] ?? $firstLeg['cabin_class'] ?? 'economy';
-        $presented = array_merge($firstLeg, [
-            'source' => 'duffel',
-            'id' => $offer['id'],
-            'offer_request_id' => $offerRequestId ?? $offer['offer_request_id'] ?? null,
-            'airline' => AirlineCopy::airlineName($owner['name'] ?? ($firstLeg['airline'] ?? null)),
-            'airline_code' => $owner['iata_code'] ?? ($firstLeg['airline_code'] ?? ''),
-            'cabin_class' => $cabin,
-            'cabin_label' => AirlineCopy::cabinLabel($cabin),
-            'available_services' => $offer['available_services'] ?? [],
-            'price' => (float) ($offer['total_amount'] ?? 0),
-            'currency' => $currency,
-            'passengers' => $offer['passengers'] ?? [],
-            'expires_at' => isset($offer['expires_at']) ? Carbon::parse($offer['expires_at']) : null,
-            'slices' => $slices,
-            'legs' => $legs,
-            'is_round_trip' => count($legs) > 1,
-            'terms' => \App\Support\FareFamily::termsFromOffer($offer, $currency),
-            'raw' => $offer,
-        ]);
-        $presented['fingerprint'] = \App\Support\FareFamily::fingerprint($presented);
+        $results = data_get($response, 'Response.Results', data_get($response, 'Results', []));
+
+        if (! is_array($results) || $results === []) {
+            return [collect(), collect()];
+        }
+
+        $first = $results[0] ?? null;
+
+        if ($this->isTboOffer($first)) {
+            return [
+                collect($results)->filter(fn ($row) => $this->isTboOffer($row))->values(),
+                collect(),
+            ];
+        }
+
+        return [
+            collect(is_array($first) ? $first : [])->filter(fn ($row) => $this->isTboOffer($row))->values(),
+            collect(is_array($results[1] ?? null) ? $results[1] : [])->filter(fn ($row) => $this->isTboOffer($row))->values(),
+        ];
+    }
+
+    protected function isTboOffer(mixed $row): bool
+    {
+        return is_array($row) && (isset($row['ResultIndex']) || isset($row['Fare']) || isset($row['Segments']));
+    }
+
+    /**
+     * @param  array<string, mixed>  $outbound
+     * @param  array<string, mixed>|null  $inbound
+     * @return array<string, mixed>
+     */
+    protected function storeTboOffer(string $traceId, array $outbound, ?array $inbound, PassengerMix $mix): array
+    {
+        $resultIndex = (string) ($outbound['ResultIndex'] ?? '');
+        $returnIndex = (string) ($inbound['ResultIndex'] ?? '');
+        $id = 'tbo-'.substr(sha1($traceId.'|'.$resultIndex.'|'.$returnIndex), 0, 16);
+        $presented = $this->presentTboOffer($outbound, $traceId, $id, $inbound, $mix);
+
+        Cache::put($this->tboOfferCacheKey($id), [
+            'trace_id' => $traceId,
+            'result_index' => $resultIndex,
+            'return_result_index' => $returnIndex !== '' ? $returnIndex : null,
+            'raw' => $outbound,
+            'return_raw' => $inbound,
+            'mix' => $mix->query(),
+        ], now()->addMinutes(25));
 
         return $presented;
     }
 
     /**
-     * @param  array<string, mixed>  $slice
+     * @param  array<string, mixed>  $raw
+     * @param  array<string, mixed>|null  $returnRaw
      * @return array<string, mixed>
      */
-    protected function presentDuffelSlice(array $slice, string $label): array
+    public function presentTboOffer(array $raw, string $traceId, string $id, ?array $returnRaw = null, ?PassengerMix $mix = null): array
     {
-        $segments = $slice['segments'] ?? [];
+        $outboundSegments = $raw['Segments'][0] ?? [];
+        $returnSegments = $returnRaw['Segments'][0] ?? ($raw['Segments'][1] ?? []);
+        $legs = [$this->presentTboLeg($outboundSegments, 'Outbound')];
+
+        if (is_array($returnSegments) && $returnSegments !== []) {
+            $legs[] = $this->presentTboLeg($returnSegments, 'Return');
+        }
+
+        $firstLeg = $legs[0];
+        $currency = strtoupper((string) ($raw['Fare']['Currency'] ?? config('services.tbo.currency', 'INR') ?: 'INR'));
+        $price = $this->tboPrice($raw) + ($returnRaw ? $this->tboPrice($returnRaw) : 0);
+        $cabin = FareFamily::tboCabin($raw);
+        $mix ??= PassengerMix::fromArray(['adults' => 1]);
+
+        $presented = array_merge($firstLeg, [
+            'source' => 'tbo',
+            'id' => $id,
+            'offer_request_id' => $traceId,
+            'tbo_trace_id' => $traceId,
+            'tbo_result_index' => (string) ($raw['ResultIndex'] ?? ''),
+            'tbo_return_result_index' => (string) ($returnRaw['ResultIndex'] ?? ''),
+            'is_lcc' => (bool) ($raw['IsLCC'] ?? $returnRaw['IsLCC'] ?? false),
+            'airline' => AirlineCopy::airlineName($firstLeg['airline'] ?? null),
+            'airline_code' => $firstLeg['airline_code'] ?? '',
+            'cabin_class' => $cabin,
+            'cabin_label' => AirlineCopy::cabinLabel($cabin),
+            'available_services' => [],
+            'price' => $price,
+            'currency' => $currency,
+            'passengers' => $mix->passengerPayload(),
+            'expires_at' => now()->addMinutes(20),
+            'slices' => [],
+            'legs' => $legs,
+            'is_round_trip' => count($legs) > 1,
+            'terms' => FareFamily::termsFromTbo($raw, $currency),
+            'raw' => $raw,
+            'return_raw' => $returnRaw,
+        ]);
+        $presented['fingerprint'] = FareFamily::fingerprint($presented);
+
+        return $presented;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $segments
+     * @return array<string, mixed>
+     */
+    protected function presentTboLeg(array $segments, string $label): array
+    {
         $first = $segments[0] ?? [];
         $last = $segments[array_key_last($segments)] ?? $first;
-        $duration = $this->isoDurationMinutes($slice['duration'] ?? 'PT0M');
-        $cabin = data_get($first, 'passengers.0.cabin_class', 'economy');
+        $airline = $first['Airline'] ?? [];
+        $duration = (int) collect($segments)->sum(fn (array $segment) => (int) ($segment['Duration'] ?? 0));
+        if ($duration === 0) {
+            $duration = (int) ($last['AccumulatedDuration'] ?? 0);
+        }
+
+        $depart = Carbon::parse(data_get($first, 'Origin.DepTime') ?? now());
+        $arrive = Carbon::parse(data_get($last, 'Destination.ArrTime') ?? now());
 
         return [
             'label' => $label,
-            'airline' => AirlineCopy::airlineName(data_get($first, 'marketing_carrier.name')),
-            'airline_code' => data_get($first, 'marketing_carrier.iata_code') ?? '',
-            'flight_number' => trim((data_get($first, 'marketing_carrier.iata_code') ?? '').(data_get($first, 'marketing_carrier_flight_number') ?? '')),
-            'cabin_class' => $cabin,
-            'origin_code' => data_get($first, 'origin.iata_code'),
-            'origin_city' => data_get($first, 'origin.city_name') ?? data_get($first, 'origin.city.name') ?? data_get($first, 'origin.name'),
-            'origin_name' => data_get($first, 'origin.name'),
-            'destination_code' => data_get($last, 'destination.iata_code'),
-            'destination_city' => data_get($last, 'destination.city_name') ?? data_get($last, 'destination.city.name') ?? data_get($last, 'destination.name'),
-            'destination_name' => data_get($last, 'destination.name'),
-            'departure_at' => Carbon::parse($first['departing_at'] ?? now()),
-            'arrival_at' => Carbon::parse($last['arriving_at'] ?? now()),
+            'airline' => AirlineCopy::airlineName($airline['AirlineName'] ?? null),
+            'airline_code' => (string) ($airline['AirlineCode'] ?? ''),
+            'flight_number' => trim(($airline['AirlineCode'] ?? '').($airline['FlightNumber'] ?? '')),
+            'cabin_class' => FareFamily::tboCabin(['Segments' => [$segments]]),
+            'origin_code' => data_get($first, 'Origin.Airport.AirportCode'),
+            'origin_city' => data_get($first, 'Origin.Airport.CityName') ?? data_get($first, 'Origin.Airport.AirportName'),
+            'origin_name' => data_get($first, 'Origin.Airport.AirportName'),
+            'destination_code' => data_get($last, 'Destination.Airport.AirportCode'),
+            'destination_city' => data_get($last, 'Destination.Airport.CityName') ?? data_get($last, 'Destination.Airport.AirportName'),
+            'destination_name' => data_get($last, 'Destination.Airport.AirportName'),
+            'departure_at' => $depart,
+            'arrival_at' => $arrive,
             'duration_minutes' => $duration,
             'formatted_duration' => $this->formatMinutes($duration),
             'stops' => max(count($segments) - 1, 0),
-            'via' => $this->viaAirports($segments),
+            'via' => collect($segments)->slice(0, -1)->map(fn (array $segment) => data_get($segment, 'Destination.Airport.AirportCode'))->filter()->unique()->values()->all(),
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $raw
+     */
+    protected function tboPrice(array $raw): float
+    {
+        $fare = $raw['Fare'] ?? [];
+
+        foreach (['PublishedFare', 'OfferedFare', 'BaseFare'] as $key) {
+            if (isset($fare[$key]) && is_numeric($fare[$key])) {
+                return round((float) $fare[$key], 2);
+            }
+        }
+
+        return 0.0;
+    }
+
+    protected function tboCabinClass(?string $cabin): int
+    {
+        return match ($cabin) {
+            'premium_economy' => 3,
+            'business' => 4,
+            'first' => 6,
+            'economy' => 2,
+            default => 1,
+        };
+    }
+
+    protected function tboOfferCacheKey(string $id): string
+    {
+        return 'tbo.offer.'.$id;
+    }
+
+    protected function tboTraceCacheKey(string $traceId): string
+    {
+        return 'tbo.trace.'.$traceId;
     }
 
     protected function searchLocal(array $filters, int $passengers): Collection
@@ -326,40 +548,11 @@ class FlightSearchService
      * @param  list<array<string, mixed>>  $segments
      * @return list<string>
      */
-    protected function viaAirports(array $segments): array
-    {
-        if (count($segments) < 2) {
-            return [];
-        }
-
-        $codes = [];
-
-        foreach (array_slice($segments, 0, -1) as $segment) {
-            $code = data_get($segment, 'destination.iata_code');
-            if (is_string($code) && $code !== '') {
-                $codes[] = $code;
-            }
-        }
-
-        return array_values(array_unique($codes));
-    }
-
     protected function cabin(?string $cabin): ?string
     {
         $allowed = ['economy', 'premium_economy', 'business', 'first'];
 
         return in_array($cabin, $allowed, true) ? $cabin : null;
-    }
-
-    protected function isoDurationMinutes(string $duration): int
-    {
-        try {
-            $interval = new \DateInterval($duration);
-        } catch (\Exception) {
-            return 0;
-        }
-
-        return ($interval->d * 24 * 60) + ($interval->h * 60) + $interval->i;
     }
 
     protected function formatMinutes(int $minutes): string

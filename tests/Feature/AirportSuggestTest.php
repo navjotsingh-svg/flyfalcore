@@ -39,6 +39,8 @@ class AirportSuggestTest extends TestCase
         $this->get('/')
             ->assertOk()
             ->assertSee('City or airport')
+            ->assertDontSee('New Delhi (DEL)')
+            ->assertDontSee('Mumbai (BOM)')
             ->assertDontSee('<select name="from"', false)
             ->assertDontSee('<select name="to"', false)
             ->assertSee('Return')

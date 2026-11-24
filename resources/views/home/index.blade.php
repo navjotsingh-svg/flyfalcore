@@ -5,9 +5,9 @@
 @section('content')
 <section class="hero-official">
     <div class="max-w-[1320px] mx-auto px-4 sm:px-6 lg:px-8 pt-6 sm:pt-16 lg:pt-24 pb-10 flex flex-col">
-        <div class="order-2 lg:order-1 max-w-xl mt-10 lg:mt-0">
-            <h1 class="font-display text-4xl sm:text-6xl lg:text-[68px] font-bold text-white leading-[1.05]">
-                The Core of<br>Every Journey
+        <div class="order-2 lg:order-1 max-w-[38rem] mt-10 lg:mt-0">
+            <h1 class="font-display text-4xl sm:text-6xl lg:text-[48px] font-bold text-white leading-[1.05]">
+                The Core of Every Journey
             </h1>
             <h2 class="mt-5 text-lg sm:text-xl font-semibold text-gold-400">
                 Connecting People. Powering Travel. Moving the World.
@@ -21,7 +21,7 @@
             </div>
         </div>
 
-        <div id="search-flights" class="order-1 lg:order-3 relative z-10 w-full max-w-[1100px] mx-auto lg:mt-14">
+        <div id="search-flights" class="order-1 lg:order-3 relative z-10 w-full max-w-[1180px] mx-auto lg:mt-16">
             @include('partials.flight-search')
         </div>
 

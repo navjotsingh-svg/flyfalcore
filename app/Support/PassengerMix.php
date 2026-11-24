@@ -195,7 +195,7 @@ class PassengerMix
         ], $this->types());
     }
 
-    public function duffelPassengers(): array
+    public function passengerPayload(): array
     {
         return array_map(fn (string $type) => ['type' => $type], $this->types());
     }

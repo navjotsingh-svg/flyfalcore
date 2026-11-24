@@ -24,7 +24,7 @@
         @if($booking->flight)
             <p>{{ $booking->flight->full_flight_number }} · {{ $booking->flight->departure_at->format('D, M j H:i') }}</p>
         @endif
-        <p>PNR: {{ $booking->duffel_booking_reference ?: '—' }}</p>
+        <p>PNR: {{ $booking->airlinePnr() ?: '—' }}</p>
         <p>PayPal capture: {{ $booking->paypal_capture_id ?: '—' }}</p>
     </div>
 </div>

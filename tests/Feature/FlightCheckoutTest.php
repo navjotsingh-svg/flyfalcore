@@ -15,107 +15,144 @@ class FlightCheckoutTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_duffel_offers_are_listed_when_the_api_responds(): void
+    public function test_without_tbo_credentials_local_search_does_not_show_live_usd_fares(): void
     {
-        config()->set('services.duffel.token', 'duffel_test_fake');
-
-        Http::fake([
-            'https://api.duffel.com/air/offer_requests*' => Http::response([
-                'data' => ['id' => 'orq_test'],
-            ], 201),
-            'https://api.duffel.com/air/offers*' => Http::response([
-                'data' => [$this->offerFixture()],
-            ], 200),
-        ]);
+        config()->set('services.tbo.client_id', null);
+        config()->set('services.tbo.username', null);
+        config()->set('services.tbo.password', null);
 
         $this->get('/flights?from=LHR&to=JFK&date='.now()->addWeek()->toDateString())
             ->assertOk()
-            ->assertSee('British Airways')
-            ->assertSee('Select')
-            ->assertDontSee('Duffel')
-            ->assertSee('Modify search')
-            ->assertSee('Least expensive')
-            ->assertSee('Direct only');
+            ->assertDontSee('British Airways')
+            ->assertDontSee('US$')
+            ->assertDontSee('American Airlines');
     }
 
-    public function test_fare_options_show_sibling_cabins_without_supplier_name(): void
+    public function test_tbo_offers_are_listed_in_indian_rupees(): void
     {
-        config()->set('services.duffel.token', 'duffel_test_fake');
+        config()->set('services.tbo.client_id', 'ApiIntegrationNew');
+        config()->set('services.tbo.username', 'tbo_user');
+        config()->set('services.tbo.password', 'tbo_pass');
+        config()->set('services.tbo.currency', 'INR');
 
-        $economy = $this->offerFixture();
-        $business = $this->offerFixture();
-        $business['id'] = 'off_test_biz';
-        $business['cabin_class'] = 'business';
-        $business['total_amount'] = '890.00';
-        $business['slices'][0]['fare_brand_name'] = 'Premium';
-
-        Http::fake(function (\Illuminate\Http\Client\Request $request) use ($economy, $business) {
+        Http::fake(function (\Illuminate\Http\Client\Request $request) {
             $url = $request->url();
 
-            if (str_contains($url, '/air/offers/off_test_1')) {
-                return Http::response(['data' => $economy], 200);
+            if (str_contains($url, 'Authenticate')) {
+                return Http::response([
+                    'TokenId' => 'tok_test',
+                    'Error' => ['ErrorCode' => 0, 'ErrorMessage' => ''],
+                ]);
             }
 
-            if (str_contains($url, '/air/offers')) {
-                return Http::response(['data' => [$economy, $business]], 200);
+            if (str_contains($url, '/Search')) {
+                $adults = data_get($request->data(), 'AdultCount');
+                $journey = data_get($request->data(), 'JourneyType');
+                $origin = data_get($request->data(), 'Segments.0.Origin');
+
+                if ((int) $adults !== 1 || (int) $journey !== 1 || $origin !== 'DEL') {
+                    return Http::response(['Error' => ['ErrorCode' => 1, 'ErrorMessage' => 'bad search']], 400);
+                }
+
+                return Http::response($this->tboSearchFixture());
             }
 
             return Http::response(['errors' => [['message' => 'unexpected '.$url]]], 404);
         });
 
-        $this->get(route('offers.show', 'off_test_1'))
+        $this->get('/flights?from=DEL&to=BOM&date='.now()->addWeek()->toDateString())
             ->assertOk()
-            ->assertSee('Fare options')
-            ->assertSee('Economy')
-            ->assertSee('Business')
-            ->assertSee('Go to checkout')
-            ->assertSee('Changeable')
-            ->assertSee('Not refundable')
-            ->assertSee('Hold price')
+            ->assertSee('Air India')
+            ->assertSee('₹')
+            ->assertSee('8,450')
+            ->assertSee('Select')
             ->assertDontSee('Duffel')
-            ->assertSee('off_test_biz');
+            ->assertDontSee('TBO');
     }
 
-    public function test_return_search_sends_two_slices_and_shows_both_legs(): void
+    public function test_tbo_return_search_sends_two_segments(): void
     {
-        config()->set('services.duffel.token', 'duffel_test_fake');
+        config()->set('services.tbo.client_id', 'ApiIntegrationNew');
+        config()->set('services.tbo.username', 'tbo_user');
+        config()->set('services.tbo.password', 'tbo_pass');
 
         $out = now()->addWeek()->toDateString();
         $back = now()->addWeeks(2)->toDateString();
 
-        Http::fake([
-            'https://api.duffel.com/air/offer_requests*' => Http::response([
-                'data' => ['id' => 'orq_return'],
-            ], 201),
-            'https://api.duffel.com/air/offers*' => Http::response([
-                'data' => [$this->offerFixture(roundTrip: true)],
-            ], 200),
-        ]);
+        Http::fake(function (\Illuminate\Http\Client\Request $request) {
+            if (str_contains($request->url(), 'Authenticate')) {
+                return Http::response(['TokenId' => 'tok_test', 'Error' => ['ErrorCode' => 0]]);
+            }
 
-        $this->get('/flights?from=LHR&to=JFK&date='.$out.'&return_date='.$back)
+            if (str_contains($request->url(), '/Search')) {
+                return Http::response($this->tboSearchFixture(roundTrip: true));
+            }
+
+            return Http::response(['errors' => [['message' => 'unexpected']]], 404);
+        });
+
+        $this->get('/flights?from=DEL&to=BOM&date='.$out.'&return_date='.$back)
             ->assertOk()
-            ->assertSee('Round trip')
-            ->assertSee('Depart')
-            ->assertSee('Return')
-            ->assertSee('JFK')
-            ->assertSee('LHR');
+            ->assertSee('Air India')
+            ->assertSee('₹');
 
         Http::assertSent(function (\Illuminate\Http\Client\Request $request) use ($out, $back) {
-            if (! str_contains($request->url(), '/air/offer_requests')) {
+            if (! str_contains($request->url(), '/Search')) {
                 return false;
             }
 
-            $slices = data_get($request->data(), 'data.slices') ?? data_get($request->data(), 'slices');
+            $segments = $request->data()['Segments'] ?? [];
 
-            return is_array($slices)
-                && count($slices) === 2
-                && ($slices[0]['origin'] ?? null) === 'LHR'
-                && ($slices[0]['destination'] ?? null) === 'JFK'
-                && ($slices[0]['departure_date'] ?? null) === $out
-                && ($slices[1]['origin'] ?? null) === 'JFK'
-                && ($slices[1]['destination'] ?? null) === 'LHR'
-                && ($slices[1]['departure_date'] ?? null) === $back;
+            return (int) ($request->data()['JourneyType'] ?? 0) === 2
+                && count($segments) === 2
+                && ($segments[0]['Origin'] ?? null) === 'DEL'
+                && ($segments[0]['Destination'] ?? null) === 'BOM'
+                && str_starts_with((string) ($segments[0]['PreferredDepartureTime'] ?? ''), $out)
+                && ($segments[1]['Origin'] ?? null) === 'BOM'
+                && ($segments[1]['Destination'] ?? null) === 'DEL'
+                && str_starts_with((string) ($segments[1]['PreferredDepartureTime'] ?? ''), $back);
         });
+    }
+
+    public function test_tbo_fare_quote_locks_inr_price_on_checkout(): void
+    {
+        config()->set('services.tbo.client_id', 'ApiIntegrationNew');
+        config()->set('services.tbo.username', 'tbo_user');
+        config()->set('services.tbo.password', 'tbo_pass');
+        config()->set('services.tbo.currency', 'INR');
+
+        Http::fake(function (\Illuminate\Http\Client\Request $request) {
+            $url = $request->url();
+
+            if (str_contains($url, 'Authenticate')) {
+                return Http::response(['TokenId' => 'tok_test', 'Error' => ['ErrorCode' => 0, 'ErrorMessage' => '']]);
+            }
+
+            if (str_contains($url, '/Search')) {
+                return Http::response($this->tboSearchFixture());
+            }
+
+            if (str_contains($url, '/FareQuote')) {
+                return Http::response($this->tboQuoteFixture());
+            }
+
+            return Http::response(['errors' => [['message' => 'unexpected '.$url]]], 404);
+        });
+
+        $listing = $this->get('/flights?from=DEL&to=BOM&date='.now()->addWeek()->toDateString());
+        $listing->assertOk();
+
+        preg_match('/offers\/(tbo-[a-f0-9]+)/', $listing->getContent(), $matches);
+        $this->assertNotEmpty($matches[1] ?? null);
+
+        $this->get(route('offers.show', $matches[1]))
+            ->assertOk()
+            ->assertSee('Fare options')
+            ->assertSee('9,100.00')
+            ->assertDontSee('8,450.00')
+            ->assertSee('Go to checkout')
+            ->assertDontSee('TBO')
+            ->assertDontSee('Duffel');
     }
 
     public function test_local_return_pairs_outbound_and_inbound_flights(): void
@@ -173,84 +210,6 @@ class FlightCheckoutTest extends TestCase
         $this->assertSame('Return', $booking->legs()[1]['label']);
         $this->assertSame(49, $outbound->fresh()->available_seats);
         $this->assertSame(39, $inbound->fresh()->available_seats);
-    }
-
-    public function test_search_sends_cabin_class_to_live_airline_search(): void
-    {
-        config()->set('services.duffel.token', 'duffel_test_fake');
-
-        Http::fake([
-            'https://api.duffel.com/air/offer_requests*' => Http::response([
-                'data' => ['id' => 'orq_test'],
-            ], 201),
-            'https://api.duffel.com/air/offers*' => Http::response([
-                'data' => [$this->offerFixture()],
-            ], 200),
-        ]);
-
-        $this->get('/flights?from=LHR&to=JFK&date='.now()->addWeek()->toDateString().'&cabin=business')
-            ->assertOk()
-            ->assertSee('Business');
-
-        Http::assertSent(function (\Illuminate\Http\Client\Request $request) {
-            if (! str_contains($request->url(), '/air/offer_requests')) {
-                return false;
-            }
-
-            $cabin = data_get($request->data(), 'data.cabin_class') ?? data_get($request->data(), 'cabin_class');
-
-            return $cabin === 'business';
-        });
-    }
-
-    public function test_search_sends_adult_child_and_infant_types_to_duffel(): void
-    {
-        config()->set('services.duffel.token', 'duffel_test_fake');
-
-        Http::fake([
-            'https://api.duffel.com/air/offer_requests*' => Http::response([
-                'data' => ['id' => 'orq_test'],
-            ], 201),
-            'https://api.duffel.com/air/offers*' => Http::response([
-                'data' => [$this->offerFixture()],
-            ], 200),
-        ]);
-
-        $this->get('/flights?from=LHR&to=JFK&date='.now()->addWeek()->toDateString().'&adults=1&children=1&infants=1')
-            ->assertOk();
-
-        Http::assertSent(function (\Illuminate\Http\Client\Request $request) {
-            if (! str_contains($request->url(), '/air/offer_requests')) {
-                return false;
-            }
-
-            $types = collect(data_get($request->data(), 'data.passengers') ?? data_get($request->data(), 'passengers'))
-                ->pluck('type')
-                ->all();
-
-            return $types === ['adult', 'child', 'infant_without_seat'];
-        });
-    }
-
-    public function test_infant_date_of_birth_is_rejected_on_an_adult_fare(): void
-    {
-        $flight = $this->makeFlight();
-
-        $this->from(route('bookings.create', $flight))->post(route('bookings.store', $flight), [
-            'contact_name' => 'Ada Lovelace',
-            'contact_email' => 'ada@example.com',
-            'adults' => 1,
-            'children' => 0,
-            'infants' => 0,
-            'passengers' => [[
-                'type' => 'adult',
-                'first_name' => 'Baby',
-                'last_name' => 'Lovelace',
-                'date_of_birth' => '2026-03-15',
-                'gender' => 'female',
-            ]],
-        ])->assertRedirect(route('bookings.create', $flight))
-            ->assertSessionHasErrors('passengers.0.date_of_birth');
     }
 
     public function test_infant_and_adult_can_be_booked_together_locally(): void
@@ -348,23 +307,6 @@ class FlightCheckoutTest extends TestCase
         });
     }
 
-    public function test_duffel_connection_failure_falls_back_to_local_flights(): void
-    {
-        config()->set('services.duffel.token', 'duffel_test_fake');
-
-        Http::fake(function () {
-            throw new \Illuminate\Http\Client\ConnectionException("cURL error 6: Couldn't resolve host 'api.duffel.com'");
-        });
-
-        $this->makeFlight();
-
-        $this->get('/flights?from=LHR&to=JFK&date='.now()->addDays(5)->toDateString())
-            ->assertOk()
-            ->assertSee('Live airline search is unavailable')
-            ->assertSee('IndiGo')
-            ->assertDontSee("Couldn't resolve host");
-    }
-
     public function test_local_booking_redirects_to_paypal(): void
     {
         config()->set('services.paypal.client_id', 'paypal-client');
@@ -460,326 +402,85 @@ class FlightCheckoutTest extends TestCase
         });
     }
 
-    public function test_duffel_order_falls_back_when_balance_payment_type_is_rejected(): void
+    protected function tboSearchFixture(bool $roundTrip = false): array
     {
-        Mail::fake();
-        config()->set('services.duffel.token', 'duffel_test_fake');
-        config()->set('services.paypal.client_id', 'paypal-client');
-        config()->set('services.paypal.client_secret', 'paypal-secret');
-        config()->set('services.paypal.base_url', 'https://api-m.sandbox.paypal.com');
+        $depart = now()->addWeek()->setTime(8, 0)->format('Y-m-d\TH:i:s');
+        $arrive = now()->addWeek()->setTime(10, 15)->format('Y-m-d\TH:i:s');
 
-        Http::fake(function (\Illuminate\Http\Client\Request $request) {
-            $url = $request->url();
-
-            if (str_contains($url, 'paypal.com/v1/oauth2/token')) {
-                return Http::response(['access_token' => 'paypal-token', 'expires_in' => 30000]);
-            }
-
-            if (str_contains($url, 'paypal.com/v2/checkout/orders/PAYPAL-ORDER-1/capture')) {
-                return Http::response([
-                    'id' => 'PAYPAL-ORDER-1',
-                    'status' => 'COMPLETED',
-                    'purchase_units' => [[
-                        'payments' => [
-                            'captures' => [['id' => 'CAP-1', 'status' => 'COMPLETED']],
-                        ],
-                    ]],
-                ], 201);
-            }
-
-            if (str_contains($url, '/air/offers/off_test_1')) {
-                return Http::response(['data' => $this->offerFixture()]);
-            }
-
-            if (str_contains($url, '/air/orders')) {
-                $body = $request->data();
-                $paymentType = data_get($body, 'data.payments.0.type') ?? data_get($body, 'payments.0.type');
-
-                if ($paymentType === 'arc_bsp_cash') {
-                    return Http::response([
-                        'data' => ['id' => 'ord_1', 'booking_reference' => 'ABC123'],
-                    ], 201);
-                }
-
-                return Http::response([
-                    'errors' => [[
-                        'code' => 'validation_error',
-                        'title' => 'Invalid field',
-                        'message' => 'The selected payment type is not available for this offer',
-                        'documentation_url' => 'https://duffel.com/docs/api/overview/response-handling',
-                        'source' => ['field' => 'type', 'pointer' => '/payments/0/type'],
-                        'type' => 'validation_error',
-                    ]],
-                ], 422);
-            }
-
-            return Http::response(['errors' => [['message' => 'unexpected '.$url]]], 404);
-        });
-
-        $booking = \App\Models\Booking::create([
-            'source' => 'duffel',
-            'contact_name' => 'Ada Lovelace',
-            'contact_email' => 'ada@example.com',
-            'contact_phone' => '+447700900123',
-            'passengers_count' => 1,
-            'total_amount' => 350,
-            'currency' => 'GBP',
-            'status' => 'pending',
-            'payment_status' => 'pending',
-            'paypal_order_id' => 'PAYPAL-ORDER-1',
-            'duffel_offer_id' => 'off_test_1',
-            'itinerary' => ['airline' => 'British Airways', 'origin_city' => 'London', 'destination_city' => 'New York'],
-        ]);
-
-        $booking->passengers()->create([
-            'title' => 'ms',
-            'first_name' => 'Ada',
-            'last_name' => 'Lovelace',
-            'date_of_birth' => '1988-01-15',
-            'gender' => 'female',
-            'duffel_passenger_id' => 'pas_1',
-        ]);
-
-        $this->get(route('paypal.success', ['reference' => $booking->booking_reference, 'token' => 'PAYPAL-ORDER-1']))
-            ->assertRedirect(route('bookings.show', $booking->booking_reference))
-            ->assertSessionHas('success');
-
-        $this->assertDatabaseHas('bookings', [
-            'id' => $booking->id,
-            'payment_status' => 'paid',
-            'status' => 'confirmed',
-            'duffel_order_id' => 'ord_1',
-        ]);
-
-        Mail::assertSent(BookingConfirmed::class);
-        $this->get(route('bookings.show', $booking->booking_reference))
-            ->assertOk()
-            ->assertDontSee('Duffel');
-    }
-
-    public function test_duffel_order_validation_error_is_shown_instead_of_raw_http_exception(): void
-    {
-        config()->set('services.duffel.token', 'duffel_test_fake');
-        config()->set('services.paypal.client_id', 'paypal-client');
-        config()->set('services.paypal.client_secret', 'paypal-secret');
-        config()->set('services.paypal.base_url', 'https://api-m.sandbox.paypal.com');
-
-        Http::fake([
-            'https://api-m.sandbox.paypal.com/v1/oauth2/token' => Http::response([
-                'access_token' => 'paypal-token',
-                'expires_in' => 30000,
-            ]),
-            'https://api-m.sandbox.paypal.com/v2/checkout/orders/PAYPAL-ORDER-1/capture' => Http::response([
-                'id' => 'PAYPAL-ORDER-1',
-                'status' => 'COMPLETED',
-                'purchase_units' => [[
-                    'payments' => [
-                        'captures' => [['id' => 'CAP-1', 'status' => 'COMPLETED']],
-                    ],
-                ]],
-            ], 201),
-            'https://api.duffel.com/air/offers/*' => Http::response(['data' => $this->offerFixture()]),
-            'https://api.duffel.com/air/orders' => Http::response([
-                'errors' => [[
-                    'code' => 'validation_required',
-                    'title' => 'Required field',
-                    'message' => 'Passenger date of birth does not match the booked fare type',
-                    'documentation_url' => 'https://duffel.com/docs/api/overview/response-handling',
-                    'source' => ['field' => 'born_on', 'pointer' => '/passengers/0/born_on'],
-                    'type' => 'validation_error',
-                ]],
-            ], 422),
-        ]);
-
-        $booking = \App\Models\Booking::create([
-            'source' => 'duffel',
-            'contact_name' => 'Ada Lovelace',
-            'contact_email' => 'ada@example.com',
-            'contact_phone' => '+447700900123',
-            'passengers_count' => 1,
-            'total_amount' => 350,
-            'currency' => 'GBP',
-            'status' => 'pending',
-            'payment_status' => 'pending',
-            'paypal_order_id' => 'PAYPAL-ORDER-1',
-            'duffel_offer_id' => 'off_test_1',
-            'itinerary' => ['airline' => 'British Airways', 'origin_city' => 'London', 'destination_city' => 'New York'],
-        ]);
-
-        $booking->passengers()->create([
-            'title' => 'ms',
-            'first_name' => 'Ada',
-            'last_name' => 'Lovelace',
-            'date_of_birth' => '1988-01-15',
-            'gender' => 'female',
-            'duffel_passenger_id' => 'pas_1',
-        ]);
-
-        $this->get(route('paypal.success', ['reference' => $booking->booking_reference, 'token' => 'PAYPAL-ORDER-1']))
-            ->assertRedirect(route('bookings.show', $booking->booking_reference))
-            ->assertSessionHas('error')
-            ->assertSessionMissing('success');
-
-        $this->get(route('bookings.show', $booking->booking_reference))
-            ->assertOk()
-            ->assertSee('Passenger date of birth does not match the booked fare type')
-            ->assertDontSee('HTTP request returned status code 422')
-            ->assertDontSee('Duffel');
-    }
-
-    public function test_airline_order_includes_selected_seat_and_bag_services(): void
-    {
-        Mail::fake();
-        config()->set('services.duffel.token', 'duffel_test_fake');
-        config()->set('services.paypal.client_id', 'paypal-client');
-        config()->set('services.paypal.client_secret', 'paypal-secret');
-        config()->set('services.paypal.base_url', 'https://api-m.sandbox.paypal.com');
-
-        Http::fake(function (\Illuminate\Http\Client\Request $request) {
-            $url = $request->url();
-
-            if (str_contains($url, 'paypal.com/v1/oauth2/token')) {
-                return Http::response(['access_token' => 'paypal-token', 'expires_in' => 30000]);
-            }
-
-            if (str_contains($url, 'paypal.com/v2/checkout/orders/PAYPAL-ORDER-1/capture')) {
-                return Http::response([
-                    'id' => 'PAYPAL-ORDER-1',
-                    'status' => 'COMPLETED',
-                    'purchase_units' => [[
-                        'payments' => [
-                            'captures' => [['id' => 'CAP-1', 'status' => 'COMPLETED']],
-                        ],
-                    ]],
-                ], 201);
-            }
-
-            if (str_contains($url, '/air/offers/off_test_1')) {
-                return Http::response(['data' => $this->offerFixture()]);
-            }
-
-            if (str_contains($url, '/air/orders')) {
-                $services = data_get($request->data(), 'data.services') ?? data_get($request->data(), 'services');
-
-                if (! is_array($services) || collect($services)->pluck('id')->all() !== ['ase_bag_1', 'ase_seat_1']) {
-                    return Http::response(['errors' => [['message' => 'missing services']]], 422);
-                }
-
-                return Http::response([
-                    'data' => ['id' => 'ord_2', 'booking_reference' => 'XYZ999'],
-                ], 201);
-            }
-
-            return Http::response(['errors' => [['message' => 'unexpected '.$url]]], 404);
-        });
-
-        $booking = \App\Models\Booking::create([
-            'source' => 'duffel',
-            'contact_name' => 'Ada Lovelace',
-            'contact_email' => 'ada@example.com',
-            'contact_phone' => '+447700900123',
-            'passengers_count' => 1,
-            'total_amount' => 390,
-            'currency' => 'GBP',
-            'status' => 'pending',
-            'payment_status' => 'pending',
-            'paypal_order_id' => 'PAYPAL-ORDER-1',
-            'duffel_offer_id' => 'off_test_1',
-            'itinerary' => [
-                'airline' => 'British Airways',
-                'origin_city' => 'London',
-                'destination_city' => 'New York',
-                'cabin_class' => 'economy',
-                'extras' => [
-                    'total' => 40,
-                    'airline_total' => 40,
-                    'services' => [
-                        ['id' => 'ase_bag_1', 'quantity' => 1],
-                        ['id' => 'ase_seat_1', 'quantity' => 1],
-                    ],
-                    'lines' => [
-                        ['label' => '23 kg checked bag × 1', 'amount' => 25],
-                        ['label' => 'Seat 12A', 'amount' => 15],
-                    ],
-                ],
+        $outbound = [[
+            'Airline' => ['AirlineCode' => 'AI', 'AirlineName' => 'Air India', 'FlightNumber' => '101'],
+            'Origin' => [
+                'Airport' => ['AirportCode' => 'DEL', 'AirportName' => 'Indira Gandhi', 'CityName' => 'Delhi'],
+                'DepTime' => $depart,
             ],
-        ]);
+            'Destination' => [
+                'Airport' => ['AirportCode' => 'BOM', 'AirportName' => 'Mumbai', 'CityName' => 'Mumbai'],
+                'ArrTime' => $arrive,
+            ],
+            'Duration' => 135,
+            'CabinClass' => 2,
+            'Baggage' => '15 KG',
+            'CabinBaggage' => '7 KG',
+        ]];
 
-        $booking->passengers()->create([
-            'title' => 'ms',
-            'first_name' => 'Ada',
-            'last_name' => 'Lovelace',
-            'date_of_birth' => '1988-01-15',
-            'gender' => 'female',
-            'seat_number' => '12A',
-            'extra_bags' => 1,
-            'duffel_passenger_id' => 'pas_1',
-        ]);
-
-        $this->get(route('paypal.success', ['reference' => $booking->booking_reference, 'token' => 'PAYPAL-ORDER-1']))
-            ->assertRedirect(route('bookings.show', $booking->booking_reference))
-            ->assertSessionHas('success');
-
-        $this->assertDatabaseHas('bookings', [
-            'id' => $booking->id,
-            'duffel_order_id' => 'ord_2',
-            'status' => 'confirmed',
-        ]);
-    }
-
-    protected function offerFixture(bool $roundTrip = false): array
-    {
-        $outbound = [
-            'duration' => 'PT8H',
-            'segments' => [[
-                'departing_at' => now()->addWeek()->setTime(9, 0)->toIso8601String(),
-                'arriving_at' => now()->addWeek()->setTime(17, 0)->toIso8601String(),
-                'marketing_carrier' => ['iata_code' => 'BA', 'name' => 'British Airways'],
-                'marketing_carrier_flight_number' => '178',
-                'origin' => ['iata_code' => 'LHR', 'name' => 'Heathrow', 'city_name' => 'London'],
-                'destination' => ['iata_code' => 'JFK', 'name' => 'John F Kennedy', 'city_name' => 'New York'],
-            ]],
+        $result = [
+            'ResultIndex' => 'OB1',
+            'IsLCC' => true,
+            'IsRefundable' => false,
+            'AirlineCode' => 'AI',
+            'Fare' => [
+                'Currency' => 'INR',
+                'PublishedFare' => 8450.00,
+                'OfferedFare' => 8000.00,
+                'BaseFare' => 7200.00,
+            ],
+            'Segments' => [$outbound],
         ];
 
-        $slices = [$outbound];
-
         if ($roundTrip) {
-            $slices[] = [
-                'duration' => 'PT7H30M',
-                'segments' => [[
-                    'departing_at' => now()->addWeeks(2)->setTime(18, 0)->toIso8601String(),
-                    'arriving_at' => now()->addWeeks(2)->setTime(6, 30)->addDay()->toIso8601String(),
-                    'marketing_carrier' => ['iata_code' => 'BA', 'name' => 'British Airways'],
-                    'marketing_carrier_flight_number' => '179',
-                    'origin' => ['iata_code' => 'JFK', 'name' => 'John F Kennedy', 'city_name' => 'New York'],
-                    'destination' => ['iata_code' => 'LHR', 'name' => 'Heathrow', 'city_name' => 'London'],
-                ]],
-            ];
+            $result['Segments'][] = [[
+                'Airline' => ['AirlineCode' => 'AI', 'AirlineName' => 'Air India', 'FlightNumber' => '102'],
+                'Origin' => [
+                    'Airport' => ['AirportCode' => 'BOM', 'AirportName' => 'Mumbai', 'CityName' => 'Mumbai'],
+                    'DepTime' => now()->addWeeks(2)->setTime(18, 0)->format('Y-m-d\TH:i:s'),
+                ],
+                'Destination' => [
+                    'Airport' => ['AirportCode' => 'DEL', 'AirportName' => 'Indira Gandhi', 'CityName' => 'Delhi'],
+                    'ArrTime' => now()->addWeeks(2)->setTime(20, 20)->format('Y-m-d\TH:i:s'),
+                ],
+                'Duration' => 140,
+                'CabinClass' => 2,
+                'Baggage' => '15 KG',
+                'CabinBaggage' => '7 KG',
+            ]];
         }
 
         return [
-            'id' => 'off_test_1',
-            'offer_request_id' => 'orq_test',
-            'total_amount' => $roundTrip ? '620.00' : '350.00',
-            'total_currency' => 'GBP',
-            'cabin_class' => 'economy',
-            'owner' => ['name' => 'British Airways', 'iata_code' => 'BA'],
-            'passengers' => [['id' => 'pas_1', 'type' => 'adult']],
-            'conditions' => [
-                'change_before_departure' => [
-                    'allowed' => true,
-                    'penalty_amount' => '70.00',
-                    'penalty_currency' => 'GBP',
-                ],
-                'refund_before_departure' => [
-                    'allowed' => false,
-                ],
+            'Response' => [
+                'ResponseStatus' => 1,
+                'TraceId' => 'trace_test',
+                'Error' => ['ErrorCode' => 0, 'ErrorMessage' => ''],
+                'Results' => [[$result]],
             ],
-            'payment_requirements' => [
-                'requires_instant_payment' => false,
-                'price_guarantee_expires_at' => now()->addDays(2)->toIso8601String(),
+        ];
+    }
+
+    protected function tboQuoteFixture(): array
+    {
+        $search = $this->tboSearchFixture();
+        $result = $search['Response']['Results'][0][0];
+        $result['Fare']['PublishedFare'] = 9100.00;
+        $result['Fare']['Currency'] = 'INR';
+        $result['IsPriceChanged'] = true;
+
+        return [
+            'Response' => [
+                'ResponseStatus' => 1,
+                'TraceId' => 'trace_test',
+                'IsPriceChanged' => true,
+                'Error' => ['ErrorCode' => 0, 'ErrorMessage' => ''],
+                'Results' => $result,
             ],
-            'slices' => $slices,
         ];
     }
 

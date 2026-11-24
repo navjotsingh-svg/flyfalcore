@@ -34,7 +34,7 @@ class AncillaryCatalog
      */
     public static function forLiveOffer(array $offer, array $seatMaps, array $slots): array
     {
-        $currency = $offer['currency'] ?? 'USD';
+        $currency = $offer['currency'] ?? 'INR';
         $cabin = $offer['cabin_class'] ?? 'economy';
         $passengers = $offer['passengers'] ?? [];
         $services = $offer['available_services'] ?? data_get($offer, 'raw.available_services', []);
@@ -71,6 +71,7 @@ class AncillaryCatalog
         $services = [];
         $seats = [];
         $bags = [];
+        $tboSeats = [];
         $total = 0.0;
         $airlineTotal = 0.0;
         $usedSeats = [];
@@ -152,6 +153,20 @@ class AncillaryCatalog
                     'quantity' => 1,
                 ];
             }
+
+            if (is_array($seat['tbo'] ?? null)) {
+                $tboSeats[$designator] = $seat['tbo'];
+            }
+        }
+
+        $tboBags = [];
+        foreach ($bags as $passengerIndex => $qty) {
+            $bagOption = $catalog['bags'][$passengerIndex] ?? null;
+            if (! is_array($bagOption) || empty($bagOption['tbo'])) {
+                continue;
+            }
+            $choices = is_array($bagOption['tbo'][0] ?? null) ? $bagOption['tbo'] : [$bagOption['tbo']];
+            $tboBags[$passengerIndex] = array_slice($choices, 0, (int) $qty);
         }
 
         return [
@@ -161,6 +176,8 @@ class AncillaryCatalog
             'seats' => $seats,
             'bags' => $bags,
             'lines' => $lines,
+            'tbo_seats' => $tboSeats,
+            'tbo_bags' => $tboBags,
             'cabin_class' => $catalog['cabin_class'] ?? 'economy',
             'cabin_label' => $catalog['cabin_label'] ?? AirlineCopy::cabinLabel($catalog['cabin_class'] ?? null),
         ];
@@ -222,6 +239,7 @@ class AncillaryCatalog
                     'label' => $weight.' kg checked bag',
                     'amount' => (float) ($match['total_amount'] ?? self::bagPrice($currency)),
                     'max' => max(1, min(2, (int) ($match['maximum_quantity'] ?? 1))),
+                    'tbo' => $match['tbo'] ?? null,
                 ];
 
                 continue;
@@ -232,6 +250,7 @@ class AncillaryCatalog
                 'label' => '23 kg extra checked bag',
                 'amount' => self::bagPrice($currency),
                 'max' => 2,
+                'tbo' => null,
             ];
         }
 
@@ -250,6 +269,32 @@ class AncillaryCatalog
         foreach ($maps as $map) {
             foreach ($map['cabins'] ?? [] as $cabin) {
                 foreach ($cabin['rows'] ?? [] as $row) {
+                    // TBO-shaped maps: rows[].seats[] with designator/available/amount/tbo
+                    foreach ($row['seats'] ?? [] as $seat) {
+                        if (! is_array($seat)) {
+                            continue;
+                        }
+
+                        $designator = strtoupper((string) ($seat['designator'] ?? $seat['Code'] ?? ''));
+                        if ($designator === '') {
+                            continue;
+                        }
+
+                        $letter = strtoupper((string) ($seat['letter'] ?? preg_replace('/\d+/', '', $designator)));
+                        $seats[] = [
+                            'designator' => $designator,
+                            'row' => (int) ($seat['row'] ?? preg_replace('/\D+/', '', $designator)),
+                            'letter' => $letter !== '' ? $letter : 'A',
+                            'amount' => (float) ($seat['amount'] ?? 0),
+                            'service_id' => $seat['service_id'] ?? null,
+                            'available' => (bool) ($seat['available'] ?? false),
+                            'kind' => $seat['kind'] ?? self::seatKind($letter),
+                            'extra' => (bool) ($seat['extra'] ?? ((float) ($seat['amount'] ?? 0) > 0)),
+                            'passenger_indexes' => $seat['passenger_indexes'] ?? [],
+                            'tbo' => is_array($seat['tbo'] ?? null) ? $seat['tbo'] : null,
+                        ];
+                    }
+
                     foreach ($row['sections'] ?? [] as $section) {
                         foreach ($section['elements'] ?? [] as $element) {
                             if (($element['type'] ?? '') !== 'seat') {

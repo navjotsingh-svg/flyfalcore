@@ -15,6 +15,7 @@ use App\Http\Controllers\Account\ProfileController as AccountProfileController;
 use App\Http\Controllers\Account\SavedPassengerController as AccountSavedPassengerController;
 use App\Http\Controllers\AirportSuggestController;
 use App\Http\Controllers\Auth\LoginController;
+use App\Http\Controllers\Auth\PasswordResetController;
 use App\Http\Controllers\BookingController;
 use App\Http\Controllers\FlightController;
 use App\Http\Controllers\HomeController;
@@ -39,8 +40,15 @@ Route::get('/destinations', [PageController::class, 'destinations'])->name('dest
 Route::get('/login', [LoginController::class, 'create'])->name('login');
 Route::post('/login', [LoginController::class, 'store'])->name('login.store');
 Route::post('/logout', [LoginController::class, 'destroy'])->name('logout');
+Route::get('/forgot-password', [PasswordResetController::class, 'requestForm'])->middleware('guest')->name('password.request');
+Route::post('/forgot-password', [PasswordResetController::class, 'sendLink'])->middleware(['guest', 'throttle:5,1'])->name('password.email');
+Route::get('/reset-password/{token}', [PasswordResetController::class, 'resetForm'])->middleware('guest')->name('password.reset');
+Route::post('/reset-password', [PasswordResetController::class, 'reset'])->middleware(['guest', 'throttle:5,1'])->name('password.update');
 Route::get('/signup', [PageController::class, 'signup'])->name('signup');
 Route::post('/signup', [PageController::class, 'storeSignup'])->name('signup.store');
+Route::get('/privacy', [PageController::class, 'privacy'])->name('privacy');
+Route::get('/terms', [PageController::class, 'terms'])->name('terms');
+Route::get('/cookies', [PageController::class, 'cookies'])->name('cookies');
 Route::post('/otp/verify', [OtpController::class, 'verify'])->middleware('throttle:10,1')->name('otp.verify');
 Route::post('/otp/resend', [OtpController::class, 'resend'])->middleware('throttle:5,1')->name('otp.resend');
 Route::post('/otp/cancel', [OtpController::class, 'cancel'])->name('otp.cancel');
@@ -71,11 +79,12 @@ Route::post('/offers/{offer}/book', [BookingController::class, 'storeFromOffer']
 Route::get('/bookings/lookup', [BookingController::class, 'lookup'])->name('bookings.lookup');
 Route::post('/bookings/lookup', [BookingController::class, 'find'])->name('bookings.find');
 Route::get('/bookings/{reference}', [BookingController::class, 'show'])->name('bookings.show');
+Route::post('/bookings/{reference}/cancel', [BookingController::class, 'cancel'])->middleware('throttle:5,1')->name('bookings.cancel');
 
 Route::get('/payments/paypal/{reference}/success', [PayPalController::class, 'success'])->name('paypal.success');
 Route::get('/payments/paypal/{reference}/cancel', [PayPalController::class, 'cancel'])->name('paypal.cancel');
 Route::get('/payments/paypal/{reference}/retry', [PayPalController::class, 'retry'])->name('paypal.retry');
-Route::post('/bookings/{reference}/issue-ticket', [PayPalController::class, 'issueTicket'])->name('bookings.issue');
+Route::post('/bookings/{reference}/issue-ticket', [PayPalController::class, 'issueTicket'])->middleware('throttle:5,1')->name('bookings.issue');
 
 Route::prefix('admin')->name('admin.')->group(function () {
     Route::get('login', [AdminAuthController::class, 'create'])->name('login');

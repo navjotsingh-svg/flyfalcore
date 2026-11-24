@@ -9,7 +9,7 @@
         <label class="text-xs font-semibold text-slate-500">Source</label>
         <select name="source" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm">
             <option value="local" @selected(old('source', $booking->source) === 'local')>local</option>
-            <option value="duffel" @selected(old('source', $booking->source) === 'duffel')>Live airline</option>
+            <option value="tbo" @selected(old('source', $booking->source) === 'tbo')>TBO live</option>
         </select>
     </div>
     <div>
@@ -77,7 +77,7 @@
         <input name="duffel_offer_id" value="{{ old('duffel_offer_id', $booking->duffel_offer_id) }}" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm">
     </div>
     <div>
-        <label class="text-xs font-semibold text-slate-500">Airline order ID</label>
+        <label class="text-xs font-semibold text-slate-500">Airline booking id</label>
         <input name="duffel_order_id" value="{{ old('duffel_order_id', $booking->duffel_order_id) }}" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm">
     </div>
     <div>

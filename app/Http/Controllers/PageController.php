@@ -29,6 +29,51 @@ class PageController extends Controller
         return view('pages.about');
     }
 
+    public function privacy(): View
+    {
+        return view('pages.legal', [
+            'title' => 'Privacy Policy',
+            'eyebrow' => 'Privacy',
+            'intro' => 'How Falcore collects, uses, and protects traveler information.',
+            'sections' => [
+                ['What we collect', 'Account details, booking contact information, passenger names, and payment references needed to complete your trip.'],
+                ['How we use it', 'We use this information to search fares, process PayPal payments, issue airline tickets through TBO, and send booking confirmations.'],
+                ['Sharing', 'We share only what is required with payment and airline partners (PayPal and TBO) to fulfill your booking.'],
+                ['Retention', 'Booking records are kept for travel operations and legal requirements. You can ask us to update or delete account data where allowed.'],
+            ],
+        ]);
+    }
+
+    public function terms(): View
+    {
+        return view('pages.legal', [
+            'title' => 'Terms & Conditions',
+            'eyebrow' => 'Terms',
+            'intro' => 'Rules that apply when you search and book with Falcore.',
+            'sections' => [
+                ['Fares', 'Live fares come from airline inventory via TBO and can change until payment is completed and the ticket is issued.'],
+                ['Payments', 'Payment is collected through PayPal. A paid booking that fails airline ticketing remains pending until the ticket is issued or cancelled.'],
+                ['Cancellations', 'Airline cancellation rules apply. Falcore can request cancellation with the airline for eligible live bookings; refunds follow airline and PayPal policies.'],
+                ['Accuracy', 'You are responsible for passenger names, dates of birth, and travel documents matching airline requirements.'],
+            ],
+        ]);
+    }
+
+    public function cookies(): View
+    {
+        return view('pages.legal', [
+            'title' => 'Cookie Policy',
+            'eyebrow' => 'Cookies',
+            'intro' => 'How Falcore uses cookies and similar storage in your browser.',
+            'sections' => [
+                ['Essential', 'We use session cookies so you can stay signed in, complete checkout, and reopen a verified booking.'],
+                ['Preferences', 'We may remember recent search choices such as trip type to make the next visit faster.'],
+                ['Analytics', 'If analytics tools are enabled later, they will only measure site usage in aggregate.'],
+                ['Control', 'You can clear cookies in your browser at any time. Essential cookies are required for booking flows to work.'],
+            ],
+        ]);
+    }
+
     public function services(): View
     {
         return view('pages.services');

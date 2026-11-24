@@ -69,42 +69,43 @@
                   })"
                   @submit="if (!validate()) $event.preventDefault()">
             @include('partials.trip-type', ['wrapClass' => 'mb-4'])
-            @include('partials.cabin-class-picker', ['includeAny' => true, 'wrapClass' => 'mb-4'])
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+            @include('partials.cabin-class-picker', ['includeAny' => true, 'compact' => true, 'wrapClass' => 'mb-4'])
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 items-end">
                 @include('partials.airport-suggest', [
+                    'fromWrap' => 'lg:col-span-3 min-w-0',
+                    'toWrap' => 'lg:col-span-3 min-w-0',
                     'showSwap' => false,
-                    'inputClass' => 'w-full rounded-2xl border border-slate-200 px-3 py-2.5 bg-slate-50 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-gold-500',
-                    'labelClass' => 'block text-xs font-semibold uppercase tracking-wide text-slate-400 mb-1',
+                    'inputClass' => 'w-full h-11 rounded-2xl border border-slate-200 px-3 bg-slate-50 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-gold-500',
+                    'labelClass' => 'block h-4 text-xs font-semibold uppercase tracking-wide text-slate-400 mb-1.5 leading-none',
                 ])
-                <div>
-                    <label class="block text-xs font-semibold uppercase tracking-wide text-slate-400 mb-1">Date</label>
+                <div class="lg:col-span-2 min-w-0">
+                    <label class="block h-4 text-xs font-semibold uppercase tracking-wide text-slate-400 mb-1.5 leading-none">Date</label>
                     <input type="date" name="date" x-model="depart" min="{{ now()->toDateString() }}" required
-                           class="w-full rounded-2xl border border-slate-200 px-3 py-2.5 bg-slate-50">
+                           class="w-full h-11 rounded-2xl border border-slate-200 px-3 bg-slate-50 text-sm font-medium">
                 </div>
-                <div x-show="trip === 'return'" x-cloak>
-                    <label class="block text-xs font-semibold uppercase tracking-wide text-slate-400 mb-1">Return</label>
+                <div class="lg:col-span-2 min-w-0" x-show="trip === 'return'" x-cloak>
+                    <label class="block h-4 text-xs font-semibold uppercase tracking-wide text-slate-400 mb-1.5 leading-none">Return</label>
                     <input type="date" name="return_date" value="{{ $filters['return_date'] ?? '' }}"
                            :min="depart || '{{ now()->toDateString() }}'"
                            :required="trip === 'return'"
                            :disabled="trip !== 'return'"
-                           class="w-full rounded-2xl border border-slate-200 px-3 py-2.5 bg-slate-50">
+                           class="w-full h-11 rounded-2xl border border-slate-200 px-3 bg-slate-50 text-sm font-medium">
                 </div>
-                @include('partials.traveller-mix', [
-                    'wrapClass' => '',
-                    'labelClass' => 'block text-xs font-semibold uppercase tracking-wide text-slate-400 mb-1',
-                    'buttonClass' => 'w-full rounded-2xl border border-slate-200 px-3 py-2.5 bg-slate-50 text-sm font-medium text-left focus:outline-none focus:ring-2 focus:ring-gold-500',
-                    'mix' => $mix,
-                ])
-                <div>
-                    <label class="block text-xs font-semibold uppercase tracking-wide text-slate-400 mb-1">Sort</label>
-                    <select name="sort" class="w-full rounded-2xl border border-slate-200 px-3 py-2.5 bg-slate-50">
-                        <option value="price" @selected(($filters['sort'] ?? 'price') === 'price')>Lowest price</option>
-                        <option value="duration" @selected(($filters['sort'] ?? '') === 'duration')>Shortest</option>
-                    </select>
+                <div class="min-w-0" :class="trip === 'return' ? 'lg:col-span-2' : 'lg:col-span-4'">
+                    @include('partials.traveller-mix', [
+                        'wrapClass' => 'min-w-0',
+                        'labelClass' => 'block h-4 text-xs font-semibold uppercase tracking-wide text-slate-400 mb-1.5 leading-none',
+                        'buttonClass' => 'w-full h-11 rounded-2xl border border-slate-200 px-3 bg-slate-50 text-sm font-medium text-left focus:outline-none focus:ring-2 focus:ring-gold-500',
+                        'mix' => $mix,
+                    ])
                 </div>
             </div>
-            <div class="mt-4 flex justify-end">
-                <button type="submit" class="rounded-full bg-gold-500 hover:bg-gold-400 text-navy-950 font-semibold px-6 py-2.5 transition">
+            <div class="mt-4 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3">
+                <select name="sort" class="w-full sm:w-52 h-11 rounded-2xl border border-slate-200 px-3 bg-slate-50 text-sm font-medium">
+                    <option value="price" @selected(($filters['sort'] ?? 'price') === 'price')>Lowest price</option>
+                    <option value="duration" @selected(($filters['sort'] ?? '') === 'duration')>Shortest</option>
+                </select>
+                <button type="submit" class="rounded-full bg-gold-500 hover:bg-gold-400 text-navy-950 font-semibold px-6 py-2.5 transition w-full sm:w-auto">
                     Search flights
                 </button>
             </div>

@@ -18,9 +18,12 @@
             <label class="text-xs font-semibold text-slate-500">Password</label>
             <input type="password" name="password" required class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm">
         </div>
-        <label class="flex items-center gap-2 text-sm text-slate-600">
-            <input type="checkbox" name="remember" value="1"> Remember me
-        </label>
+        <div class="flex items-center justify-between gap-3 text-sm text-slate-600">
+            <label class="flex items-center gap-2">
+                <input type="checkbox" name="remember" value="1"> Remember me
+            </label>
+            <a href="{{ route('password.request') }}" class="font-semibold text-navy-900 hover:text-gold-600">Forgot password?</a>
+        </div>
         <button type="submit" class="w-full rounded-full bg-gold-500 hover:bg-gold-400 text-navy-950 font-semibold py-3">Sign in</button>
     </form>
 

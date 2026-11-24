@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\Flight;
 use App\Services\Airports\AirportSuggestService;
-use App\Services\Duffel\DuffelClient;
 use App\Services\Flights\FlightSearchService;
 use App\Support\FareFamily;
 use App\Support\PassengerMix;
@@ -15,7 +14,6 @@ class FlightController extends Controller
 {
     public function __construct(
         protected FlightSearchService $search,
-        protected DuffelClient $duffel,
         protected AirportSuggestService $airports,
     ) {}
 
@@ -35,7 +33,7 @@ class FlightController extends Controller
             'offers' => $offers,
             'source' => $result['source'],
             'searchMessage' => $result['message'],
-            'duffelReady' => $this->duffel->configured(),
+            'liveReady' => $this->search->liveConfigured(),
             'passengers' => $mix->totalCount(),
             'mix' => $mix,
             'filters' => $filters,

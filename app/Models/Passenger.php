@@ -40,23 +40,6 @@ class Passenger extends Model
         return trim("{$this->first_name} {$this->last_name}");
     }
 
-    public function duffelGender(): string
-    {
-        return match ($this->gender) {
-            'female' => 'f',
-            default => 'm',
-        };
-    }
-
-    public function duffelTitle(): string
-    {
-        if (filled($this->title)) {
-            return strtolower($this->title);
-        }
-
-        return $this->gender === 'female' ? 'ms' : 'mr';
-    }
-
     public function typeLabel(): string
     {
         return \App\Support\PassengerMix::label($this->type ?: 'adult');

@@ -10,9 +10,14 @@
     infants: {{ (int) $mix->infants }}
 })" @click.outside="open = false">
     <label class="{{ $labelClass }}">Travellers</label>
-    <button type="button" class="{{ $buttonClass }}" @click="open = !open">
-        <span x-text="summary()"></span>
-    </button>
+    <div class="relative">
+        @if(!empty($icon))
+            <span class="pointer-events-none absolute {{ $iconPosition ?? 'left-0' }} top-1/2 -translate-y-1/2 text-gold-600"><i class="fa-solid {{ $icon }}"></i></span>
+        @endif
+        <button type="button" class="{{ $buttonClass }}" @click="open = !open">
+            <span x-text="summary()"></span>
+        </button>
+    </div>
     <input type="hidden" name="adults" :value="adults">
     <input type="hidden" name="children" :value="children">
     <input type="hidden" name="infants" :value="infants">

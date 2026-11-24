@@ -12,16 +12,32 @@
     @auth
         <p class="mb-4 text-sm"><a href="{{ route('account.bookings') }}" class="font-semibold text-navy-900 hover:text-gold-600">← My trips</a></p>
     @endauth
-    @if($booking->payment_status === 'paid' && $booking->status === 'confirmed')
+    @if($booking->status === 'cancelled')
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 text-slate-800">
+            <p class="font-semibold">Booking cancelled</p>
+            <p class="text-sm mt-1">This trip was cancelled with the airline. Refund timing depends on the airline and PayPal.</p>
+        </div>
+    @elseif($booking->payment_status === 'paid' && $booking->status === 'confirmed')
         <div class="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-emerald-900">
             <p class="font-semibold">Booking confirmed</p>
             <p class="text-sm mt-1">Save your reference <strong>{{ $booking->booking_reference }}</strong> to manage this trip.</p>
+            @if($booking->source === 'tbo' && filled($booking->airlineBookingId()))
+                <form action="{{ route('bookings.cancel', $booking->booking_reference) }}" method="POST" class="mt-4 space-y-3" onsubmit="return confirm('Cancel this airline booking?')">
+                    @csrf
+                    <label class="flex items-start gap-2 text-sm">
+                        <input type="checkbox" name="confirm" value="1" required class="mt-1">
+                        <span>I understand airline cancellation rules may apply and refunds are not instant.</span>
+                    </label>
+                    @error('confirm') <p class="text-red-600 text-xs">{{ $message }}</p> @enderror
+                    <button class="inline-flex rounded-full border border-emerald-300 bg-white px-5 py-2.5 font-semibold text-emerald-900 hover:bg-emerald-100">Cancel with airline</button>
+                </form>
+            @endif
         </div>
     @elseif($booking->status === 'fulfillment_failed')
         <div class="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-amber-900">
             <p class="font-semibold">Payment received — ticket pending</p>
             <p class="text-sm mt-1">PayPal captured the fare, but the airline order still needs to be issued. {{ $booking->fulfillment_error }}</p>
-            @if($booking->payment_status === 'paid' && $booking->source === 'duffel' && blank($booking->duffel_order_id))
+            @if($booking->payment_status === 'paid' && $booking->source === 'tbo' && blank($booking->airlinePnr()))
                 <form action="{{ route('bookings.issue', $booking->booking_reference) }}" method="POST" class="mt-3">
                     @csrf
                     <button class="inline-flex rounded-full bg-gold-500 hover:bg-gold-400 text-navy-950 font-semibold px-5 py-2.5">Issue ticket</button>
@@ -47,7 +63,7 @@
             <div class="text-right text-sm">
                 <p class="capitalize">Status: <strong>{{ str_replace('_', ' ', $booking->status) }}</strong></p>
                 <p class="capitalize text-slate-500">Payment: {{ $booking->payment_status }}</p>
-                @if($booking->source === 'duffel')
+                @if($booking->source === 'tbo')
                     <p class="mt-1 text-xs font-semibold text-brand-600">Live airline fare</p>
                 @endif
             </div>
@@ -88,9 +104,12 @@
             @endforeach
         </div>
 
-        @if($booking->duffel_booking_reference)
+        @if($booking->airlinePnr())
             <div class="border-t border-slate-100 pt-6 text-sm">
-                <p>Airline PNR: <strong>{{ $booking->duffel_booking_reference }}</strong></p>
+                <p>Airline PNR: <strong>{{ $booking->airlinePnr() }}</strong></p>
+                @if($booking->airlineBookingId())
+                    <p class="mt-1 text-slate-500">Airline booking id: {{ $booking->airlineBookingId() }}</p>
+                @endif
             </div>
         @endif
 

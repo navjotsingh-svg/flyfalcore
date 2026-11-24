@@ -4,7 +4,7 @@ namespace App\Exceptions;
 
 use RuntimeException;
 
-class DuffelException extends RuntimeException
+class TboException extends RuntimeException
 {
     public function __construct(
         string $message,

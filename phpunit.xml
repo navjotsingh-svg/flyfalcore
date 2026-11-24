@@ -34,7 +34,9 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
-        <env name="DUFFEL_ACCESS_TOKEN" value=""/>
+        <env name="TBO_CLIENT_ID" value=""/>
+        <env name="TBO_USERNAME" value=""/>
+        <env name="TBO_PASSWORD" value=""/>
         <env name="PAYPAL_CLIENT_ID" value=""/>
         <env name="PAYPAL_CLIENT_SECRET" value=""/>
     </php>

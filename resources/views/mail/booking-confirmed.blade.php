@@ -28,8 +28,8 @@
                     <td style="padding:28px 32px;">
                         <p style="margin:0;font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:1px;">Booking reference</p>
                         <p style="margin:6px 0 0;font-size:28px;font-weight:bold;letter-spacing:1px;">{{ $booking->booking_reference }}</p>
-                        @if($booking->duffel_booking_reference)
-                            <p style="margin:8px 0 0;font-size:14px;color:#334155;">Airline PNR: <strong>{{ $booking->duffel_booking_reference }}</strong></p>
+                        @if($booking->airlinePnr())
+                            <p style="margin:8px 0 0;font-size:14px;color:#334155;">Airline PNR: <strong>{{ $booking->airlinePnr() }}</strong></p>
                         @endif
 
                         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:24px;border-top:1px solid #e2e8f0;">
